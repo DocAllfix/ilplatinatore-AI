@@ -36,15 +36,27 @@ services:
     memswap_limit: 3g
     cpus: "2.0"
     # ── AUDIT FIX (Docker): sicurezza container
+    # cap_drop ALL + cap_add minimal set: l'entrypoint postgres ha bisogno di
+    # CHOWN/DAC_OVERRIDE/FOWNER per fare chown/chmod della data dir al primo boot,
+    # e SETUID/SETGID per switchare dal root entrypoint all'utente postgres (UID 999).
+    # Senza queste capability chmod fallisce con "Operation not permitted".
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
     read_only: true
     # AUDIT FIX (R5): tmpfs con size espliciti — senza questi read_only blocca PostgreSQL al boot
     #   (non può creare socket/stat files). /var/lib/postgresql/data resta scrivibile via volume.
+    # NOTA: pg_stat_tmp rimosso — in PG16 stats_temp_directory non esiste più
+    #   (stat collector sostituito da shared memory). Un tmpfs annidato qui causa
+    #   conflitti di mount con il volume parent su Docker Desktop/WSL2.
     tmpfs:
       - /tmp:size=512M
       - /var/run/postgresql:size=64M
-      - /var/lib/postgresql/data/pg_stat_tmp:size=64M
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -66,6 +78,9 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # edoburu/pgbouncer ascolta di default sulla 5432 DENTRO il container.
+      # Forziamo 6432 così tutto è coerente con il port mapping e con DATABASE_URL dell'app.
+      LISTEN_PORT: "6432"
       POOL_MODE: transaction
       MAX_CLIENT_CONN: "200"
       DEFAULT_POOL_SIZE: "9"
@@ -100,8 +115,16 @@ services:
     memswap_limit: 768m
     cpus: "0.5"
     # ── AUDIT FIX (Docker): sicurezza container
+    # L'entrypoint redis:7-alpine fa su-exec root→redis; servono SETUID/SETGID.
+    # Per appendonly/RDB sul volume /data servono anche CHOWN/DAC_OVERRIDE/FOWNER.
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETUID
+      - SETGID
     read_only: true
     # AUDIT FIX (R5): tmpfs con size esplicito
     tmpfs:
