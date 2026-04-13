@@ -1,4 +1,5 @@
 import psycopg_pool
+
 from src.config.settings import settings
 
 # Pool max=3: non contende con il backend Node.js su PgBouncer

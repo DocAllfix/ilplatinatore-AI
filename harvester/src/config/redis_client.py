@@ -1,4 +1,5 @@
 import redis.asyncio as aioredis
+
 from src.config.settings import settings
 
 # Redis db=1: separato dal backend che usa db=0

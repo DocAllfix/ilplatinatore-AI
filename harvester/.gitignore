@@ -1,0 +1,23 @@
+# Ambiente virtuale Python
+.venv/
+
+# Bytecode Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Build artifacts (editable install)
+*.egg-info/
+dist/
+build/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Ruff cache
+.ruff_cache/
+
+# Env locale (non committare mai)
+.env
