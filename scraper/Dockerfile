@@ -1,25 +1,12 @@
-FROM node:20-alpine AS builder
-
+# Scraper con Chromium headless per Puppeteer
+# apk installa Chromium di sistema — evita il download del browser bundled di Puppeteer
+FROM node:20-alpine
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 WORKDIR /app
-
-COPY package.json ./
-RUN npm install
-
-COPY tsconfig.json ./
-COPY src ./src
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
 RUN npm run build
-
-# ---
-
-FROM node:20-alpine AS runner
-
-WORKDIR /app
-
-ENV NODE_ENV=production
-
-COPY package.json ./
-RUN npm install --omit=dev
-
-COPY --from=builder /app/dist ./dist
-
 CMD ["node", "dist/index.js"]

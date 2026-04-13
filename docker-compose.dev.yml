@@ -1,0 +1,33 @@
+version: "3.8"
+
+# ─────────────────────────────────────────────────────────────
+# Il Platinatore AI — Docker Compose Override (sviluppo locale)
+# Utilizzo: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  # ── API (dev): hot-reload + /app/dist scrivibile per ts-rebuild ─
+  api:
+    # Volume mount per hot-reload (ts-node-dev / nodemon)
+    volumes:
+      - ./backend/src:/app/src
+    # AUDIT FIX (R5): /app/dist come tmpfs in dev per ts hot-rebuild
+    # (in produzione il dist è già nell'image, quindi non serve qui)
+    tmpfs:
+      - /tmp:size=256M
+      - /app/dist:size=256M
+
+  # ── PostgreSQL (dev): porta esposta per debug locale ───────
+  # Usa VS Code PostgreSQL extension o pgAdmin puntando a localhost:5432
+  # ATTENZIONE: NON esporre 5432 in produzione
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # ── Redis (dev): porta esposta per debug locale ────────────
+  # Usa redis-cli o Redis Insight puntando a localhost:6379
+  # ATTENZIONE: NON esporre 6379 in produzione
+  redis:
+    ports:
+      - "6379:6379"

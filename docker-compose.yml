@@ -1,0 +1,193 @@
+version: "3.8"
+
+# ─────────────────────────────────────────────────────────────
+# Il Platinatore AI — Docker Compose (produzione / base)
+# Override dev: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# ─────────────────────────────────────────────────────────────
+
+networks:
+  platinatore-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redisdata:
+
+services:
+
+  # ── PostgreSQL + pgvector ──────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: platinatore-postgres
+    restart: unless-stopped
+    networks:
+      - platinatore-net
+    # Il volume è scrivibile nonostante read_only: true (è un mount separato)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # ── AUDIT FIX (Fatal Flaw #1): limiti risorse espliciti
+    mem_limit: 3g
+    memswap_limit: 3g
+    cpus: "2.0"
+    # ── AUDIT FIX (Docker): sicurezza container
+    cap_drop:
+      - ALL
+    read_only: true
+    # AUDIT FIX (R5): tmpfs con size espliciti — senza questi read_only blocca PostgreSQL al boot
+    #   (non può creare socket/stat files). /var/lib/postgresql/data resta scrivibile via volume.
+    tmpfs:
+      - /tmp:size=512M
+      - /var/run/postgresql:size=64M
+      - /var/lib/postgresql/data/pg_stat_tmp:size=64M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ── PgBouncer — Connection Pooler OBBLIGATORIO ─────────────
+  # L'app si connette SEMPRE qui (porta 6432), MAI direttamente a postgres (5432)
+  # ECCEZIONE: migrate.sh usa POSTGRES_DIRECT_URL (5432) per le migration
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: platinatore-pgbouncer
+    restart: unless-stopped
+    networks:
+      - platinatore-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "200"
+      DEFAULT_POOL_SIZE: "9"
+      MIN_POOL_SIZE: "2"
+      RESERVE_POOL_SIZE: "2"
+    ports:
+      - "6432:6432"
+    # ── AUDIT FIX: mem_limit esplicito (processo leggero, ~10-30MB tipici)
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: "0.2"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Redis — Cache + Rate Limiting + Job Queue (BullMQ) ─────
+  redis:
+    image: redis:7-alpine
+    container_name: platinatore-redis
+    restart: unless-stopped
+    networks:
+      - platinatore-net
+    # Il volume /data resta scrivibile (appendonly/RDB) nonostante read_only: true
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    # ── AUDIT FIX (Fatal Flaw #1): limiti risorse espliciti
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: "0.5"
+    # ── AUDIT FIX (Docker): sicurezza container
+    cap_drop:
+      - ALL
+    read_only: true
+    # AUDIT FIX (R5): tmpfs con size esplicito
+    tmpfs:
+      - /tmp:size=128M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── API — Backend Node.js ──────────────────────────────────
+  # Placeholder: Dockerfile verrà completato nelle fasi successive
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: platinatore-api
+    restart: unless-stopped
+    networks:
+      - platinatore-net
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    # ── AUDIT FIX (Fatal Flaw #1): limiti risorse espliciti
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: "1.5"
+    # ── AUDIT FIX (Docker): sicurezza container
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    read_only: true
+    # AUDIT FIX (R5): tmpfs con size espliciti
+    # Nota: /app/dist è nell'image in produzione — aggiunto come tmpfs solo in docker-compose.dev.yml
+    tmpfs:
+      - /tmp:size=256M
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ── Scraper — Worker scraping (interno, nessuna porta) ─────
+  # Placeholder: Dockerfile verrà completato nelle fasi successive
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    container_name: platinatore-scraper
+    restart: unless-stopped
+    networks:
+      - platinatore-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    # ── AUDIT FIX (Fatal Flaw #1): limiti risorse espliciti
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: "1.0"
+    # ── AUDIT FIX (Docker): sicurezza container
+    cap_drop:
+      - ALL
+    read_only: true
+    # AUDIT FIX (R5): tmpfs con size esplicito
+    tmpfs:
+      - /tmp:size=256M
+    healthcheck:
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
