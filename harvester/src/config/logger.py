@@ -6,7 +6,8 @@ from src.config.settings import settings
 
 
 def setup_logging() -> None:
-    log_level = getattr(logging, settings.harvester_log_level.upper(), logging.INFO)
+    """Configura structlog: JSON in prod, console colorata in dev (DEBUG)."""
+    log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
     structlog.configure(
         processors=[
@@ -25,5 +26,12 @@ def setup_logging() -> None:
     )
 
 
-def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    return structlog.get_logger(name)
+def get_logger(name: str) -> structlog.BoundLogger:
+    """Restituisce un logger con il campo 'logger' già bindato al nome del modulo."""
+    return structlog.get_logger().bind(logger=name)
+
+
+# Configura al momento dell'import.
+# Chiunque faccia `from src.config.logger import get_logger`
+# ottiene un logger già configurato senza dover chiamare setup_logging().
+setup_logging()
