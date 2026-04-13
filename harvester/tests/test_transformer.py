@@ -19,9 +19,9 @@ class TestPrompts:
     def test_fact_extraction_mentions_json_array(self) -> None:
         assert "JSON array" in FACT_EXTRACTION_PROMPT
 
-    def test_synthesis_mentions_platinatore_and_italian(self) -> None:
+    def test_synthesis_mentions_platinatore_and_english(self) -> None:
         assert "Il Platinatore" in GUIDE_SYNTHESIS_PROMPT
-        assert "italiano" in GUIDE_SYNTHESIS_PROMPT
+        assert "English" in GUIDE_SYNTHESIS_PROMPT
 
 
 # ── Quality score ────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ _COMPLETE_GUIDE = {
     "game_name": "Elden Ring",
     "trophy_name": "Platino",
     "guide_type": "trophy_guide",
-    "language": "it",
+    "language": "en",
     "source": "harvested",
     "confidence_level": "harvested",
 }

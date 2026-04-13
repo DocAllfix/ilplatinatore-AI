@@ -191,7 +191,7 @@ class GuideSynthesizer:
             "game_name": game_name,
             "trophy_name": trophy_name,
             "guide_type": "trophy_guide",
-            "language": "it",
+            "language": "en",
             "source": "harvested",
             "confidence_level": "harvested",
         }

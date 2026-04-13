@@ -51,7 +51,7 @@ FORMATO OUTPUT OBBLIGATORIO (rispondi SOLO con questo formato markdown, nessun t
 {Punti di non ritorno, quest prerequisite, difficoltà minima richiesta}
 
 REGOLE:
-1. Scrivi in italiano.
+1. Write in English.
 2. Tono: professionale ma accessibile.
 3. Non inventare informazioni non presenti nei fatti forniti.
 4. Se un'informazione è incerta, usa "potrebbe essere necessario".

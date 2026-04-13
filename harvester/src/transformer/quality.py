@@ -48,8 +48,8 @@ def calculate_quality_score(guide: dict) -> float:
     steps_ratio = min(1.0, steps / _MIN_FULL_STEPS)
     score_steps = 0.20 * steps_ratio
 
-    # 10% — lingua italiana
-    score_lang = 0.10 if guide.get("language") == "it" else 0.0
+    # 10% — lingua valida (sintetizzata dal nostro pipeline)
+    score_lang = 0.10 if guide.get("language") in ("it", "en") else 0.0
 
     # 10% — sezione consigli/tips
     score_tips = 0.10 if _TIPS_RE.search(content) else 0.0
