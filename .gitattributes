@@ -1,0 +1,10 @@
+# Normalizza line endings a LF nel repo, checkout as-is su ogni OS
+* text=auto eol=lf
+
+# Script bash sempre LF
+*.sh text eol=lf
+
+# File binari
+*.png binary
+*.jpg binary
+*.whl binary

@@ -1,0 +1,20 @@
+{
+  "name": "il-platinatore-ai-backend",
+  "version": "0.1.0",
+  "description": "Backend API per Il Platinatore AI — chatbot RAG per guide videoludiche",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && tsc-alias",
+    "dev": "ts-node-dev --respawn --transpile-only -r tsconfig-paths/register src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": ["ai", "chatbot", "gaming", "rag", "typescript"],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {}
+}
