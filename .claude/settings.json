@@ -10,6 +10,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "ext=$(echo $TOOL_INPUT_PATH | sed 's/.*\\.//'); if [ \"$ext\" = 'ts' ] || [ \"$ext\" = 'tsx' ] || [ \"$ext\" = 'js' ] || [ \"$ext\" = 'jsx' ]; then npx prettier --write $TOOL_INPUT_PATH 2>/dev/null; elif [ \"$ext\" = 'py' ]; then ruff format $TOOL_INPUT_PATH 2>/dev/null; fi"
+          }
+        ]
+      }
     ]
   }
 }
