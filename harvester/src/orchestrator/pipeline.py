@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
+from src.collectors.base import BaseCollector
 from src.collectors.powerpyx import PowerPyxCollector
+from src.collectors.psnprofiles import PSNProfilesCollector
+from src.collectors.trueachievements import TrueAchievementsCollector
 from src.config.db import _get_pool
 from src.config.logger import get_logger
 from src.discovery.seed_loader import SeedLoader
@@ -32,7 +36,12 @@ class HarvestPipeline:
 
     def __init__(self) -> None:
         self._seed_loader = SeedLoader()
-        self._collector = PowerPyxCollector()
+        # Dizionario dei collector attivi: chiave = nome, valore = istanza.
+        self._collectors: dict[str, BaseCollector] = {
+            "powerpyx": PowerPyxCollector(),
+            "psnprofiles": PSNProfilesCollector(),
+            "trueachievements": TrueAchievementsCollector(),
+        }
         self._synthesizer = GuideSynthesizer()
         self._deduplicator = Deduplicator()
         self._embedder = Embedder()
@@ -57,10 +66,18 @@ class HarvestPipeline:
         self.guides_processed += 1
 
         # STEP 1: Collect da tutte le sorgenti.
+        # Il collector corretto viene scelto in base al dominio dell'URL.
         collected: list[dict] = []
         for url in source_urls:
             try:
-                result = await self._collector.collect(url)
+                collector = self._get_collector_for_url(url)
+                if collector is None:
+                    self._logger.warning(
+                        "nessun collector per URL, skip",
+                        url=url[:100],
+                    )
+                    continue
+                result = await collector.collect(url)
                 if result is not None:
                     collected.append(result)
             except Exception as exc:
@@ -284,8 +301,14 @@ class HarvestPipeline:
                 if not title or not slug:
                     continue
 
-                url = f"https://powerpyx.com/{slug}-trophy-guide/"
-                await self.process_single_guide(title, None, [url])
+                # Costruisci URL da fonti multiple per lo stesso gioco.
+                # PSNProfiles richiede un ID numerico non disponibile nel seed:
+                # viene saltata finché non sarà disponibile un endpoint di discovery.
+                urls = [
+                    f"https://powerpyx.com/{slug}-trophy-guide/",
+                    f"https://www.trueachievements.com/game/{slug}/achievements",
+                ]
+                await self.process_single_guide(title, None, urls)
 
                 # Persisti progresso dopo ogni gioco.
                 await self._save_progress(seed_file, slug)
@@ -364,14 +387,41 @@ class HarvestPipeline:
             (seed_file,),
         )
 
+    # ── Collector dispatch ────────────────────────────────────────────────────
+
+    def _get_collector_for_url(self, url: str) -> BaseCollector | None:
+        """Seleziona il collector corretto in base al dominio dell'URL.
+
+        Usa match esatto o subdomain: evita false positives da substring
+        (es. "fake-trueachievements.com" non deve matchare "trueachievements.com").
+        """
+        try:
+            netloc = urlparse(url).netloc
+        except (ValueError, AttributeError):
+            return None
+
+        # Normalizza: rimuovi prefisso "www." se presente.
+        # Non usare lstrip("www.") — strip per carattere, non per prefisso.
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
+
+        for collector in self._collectors.values():
+            # Accetta: dominio esatto OPPURE sottodominio (es. "m.psnprofiles.com").
+            if netloc == collector.domain or netloc.endswith("." + collector.domain):
+                return collector
+        return None
+
     # ── Cleanup ──────────────────────────────────────────────────────────────
 
     async def cleanup(self) -> None:
         """Chiude tutti i client HTTP."""
-        try:
-            await self._collector.close()
-        except Exception as exc:
-            self._logger.error("collector close fallito", error=str(exc))
+        for name, collector in self._collectors.items():
+            try:
+                await collector.close()
+            except Exception as exc:
+                self._logger.error(
+                    "collector close fallito", collector=name, error=str(exc)
+                )
 
 
 def _touch_heartbeat() -> None:

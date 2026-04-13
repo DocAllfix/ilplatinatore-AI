@@ -13,9 +13,12 @@ def _make_pipeline() -> HarvestPipeline:
     """Crea una pipeline con tutti i componenti mockati."""
     p = HarvestPipeline.__new__(HarvestPipeline)
     p._seed_loader = MagicMock()
-    p._collector = MagicMock()
-    p._collector.collect = AsyncMock()
-    p._collector.close = AsyncMock()
+    # Collector mockato condiviso, registrato nel dizionario per dominio.
+    _mock_collector = MagicMock()
+    _mock_collector.collect = AsyncMock()
+    _mock_collector.close = AsyncMock()
+    _mock_collector.domain = "powerpyx.com"
+    p._collectors = {"powerpyx": _mock_collector}
     p._synthesizer = MagicMock()
     p._synthesizer.transform = AsyncMock()
     p._deduplicator = MagicMock()
@@ -37,7 +40,7 @@ class TestProcessSingleGuide:
     async def test_returns_false_when_all_collectors_return_none(self) -> None:
         """Se tutti i collect ritornano None → False."""
         p = _make_pipeline()
-        p._collector.collect.return_value = None
+        p._collectors["powerpyx"].collect.return_value = None
 
         result = await p.process_single_guide(
             "Elden Ring", None, ["https://powerpyx.com/elden-ring/"]
@@ -51,7 +54,7 @@ class TestProcessSingleGuide:
         """Se quality_score < 0.4 → skip."""
         p = _make_pipeline()
         # Collector ritorna contenuto valido.
-        p._collector.collect.return_value = {
+        p._collectors["powerpyx"].collect.return_value = {
             "raw_content": "short",
             "source_url": "https://powerpyx.com/x/",
             "source_domain": "powerpyx.com",
@@ -79,7 +82,7 @@ class TestProcessSingleGuide:
     async def test_calls_upsert_on_success(self) -> None:
         """Pipeline completa: collect → transform → quality OK → upsert."""
         p = _make_pipeline()
-        p._collector.collect.return_value = {
+        p._collectors["powerpyx"].collect.return_value = {
             "raw_content": "contenuto completo " * 100,
             "source_url": "https://powerpyx.com/elden-ring/",
             "source_domain": "powerpyx.com",
@@ -115,7 +118,7 @@ class TestProcessSingleGuide:
     async def test_returns_false_when_already_processed(self) -> None:
         """Se tutte le sorgenti sono già processate → skip."""
         p = _make_pipeline()
-        p._collector.collect.return_value = {
+        p._collectors["powerpyx"].collect.return_value = {
             "raw_content": "content",
             "source_url": "https://powerpyx.com/x/",
             "source_domain": "powerpyx.com",
@@ -203,7 +206,7 @@ class TestRunSeedBatch:
 class TestCleanup:
     @pytest.mark.asyncio
     async def test_closes_collector(self) -> None:
-        """cleanup() chiama collector.close()."""
+        """cleanup() chiama close() su tutti i collector."""
         p = _make_pipeline()
         await p.cleanup()
-        p._collector.close.assert_awaited_once()
+        p._collectors["powerpyx"].close.assert_awaited_once()
