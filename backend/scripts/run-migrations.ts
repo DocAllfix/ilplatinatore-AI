@@ -26,10 +26,12 @@ const __dirname = path.dirname(__filename);
 
 /**
  * Migration runner — connessione DIRETTA a PostgreSQL (porta 5432), NON via PgBouncer.
- * Le DDL non funzionano bene con transaction pooling di PgBouncer.
+ * Le DDL non funzionano bene con transaction pooling di PgBouncer (POOL_MODE=transaction).
  *
- * Eseguire DENTRO la rete Docker:
- *   docker compose exec api npx tsx scripts/run-migrations.ts
+ * Eseguire DALL'HOST (non dentro Docker):
+ *   npm run migrate
+ * POSTGRES_DIRECT_URL usa localhost:5432 che viene mappato al container postgres
+ * tramite docker-compose.dev.yml. Inside Docker localhost:5432 fallirebbe.
  */
 async function runMigrations(): Promise<void> {
   const directUrl = process.env.POSTGRES_DIRECT_URL;
