@@ -41,3 +41,9 @@ redis_data/
 # Temporanei
 *.tmp
 *.temp
+
+# graphify output
+graphify-out/
+
+# .gitkeep — rimuovere manualmente quando la cartella riceve il primo file reale
+# NON aggiungere "**/.gitkeep" qui: devono restare tracciati finché la dir è vuota
