@@ -214,3 +214,49 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # ── Harvester — Infinite Ingestion Engine (Python) ─────────
+  # Placeholder: entry point verrà completato nelle fasi successive
+  harvester:
+    build: ./harvester
+    # AUDIT FIX (Fatal Flaw #1): ridotto da 2g a 512m — l'harvester senza Playwright
+    # usa solo httpx/selectolax, non ha bisogno di 2GB
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: "1.0"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # AUDIT FIX (Docker): sicurezza container
+    cap_drop:
+      - ALL
+    read_only: true
+    # AUDIT FIX (R5): size esplicito; l'harvester scrive temp file HTML
+    tmpfs:
+      - /tmp:size=512M
+    # AUDIT FIX (Docker + W-ARCH-2): Healthcheck per harvester con heartbeat file.
+    # Il precedente `import sys; sys.exit(0)` verificava solo che Python fosse installato (no-op).
+    # Ora il processo principale deve toccare /tmp/harvester_heartbeat ogni minuto nel loop
+    # dell'orchestratore (aggiungere `Path('/tmp/harvester_heartbeat').touch()` nel ciclo).
+    # L'healthcheck verifica che il file sia stato modificato negli ultimi 5 minuti.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, time; assert time.time() - os.path.getmtime('/tmp/harvester_heartbeat') < 300, 'Heartbeat stale'"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=redis://redis:6379/1
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_EMBEDDING_API_KEY=${GOOGLE_EMBEDDING_API_KEY}
+      - IGDB_CLIENT_ID=${IGDB_CLIENT_ID}
+      - IGDB_CLIENT_SECRET=${IGDB_CLIENT_SECRET}
+      - HARVESTER_LOG_LEVEL=${HARVESTER_LOG_LEVEL:-INFO}
+      - HARVESTER_DAILY_GEMINI_LIMIT=${HARVESTER_DAILY_GEMINI_LIMIT:-5000}
+      - HARVESTER_DAILY_EMBEDDING_LIMIT=${HARVESTER_DAILY_EMBEDDING_LIMIT:-50000}
+    networks:
+      - platinatore-net

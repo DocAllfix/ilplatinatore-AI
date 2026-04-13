@@ -31,3 +31,10 @@ services:
   redis:
     ports:
       - "6379:6379"
+
+  # ── Harvester (dev): hot-reload src + log DEBUG ────────────
+  harvester:
+    volumes:
+      - ./harvester/src:/app/src  # Hot reload in sviluppo
+    environment:
+      - HARVESTER_LOG_LEVEL=DEBUG
