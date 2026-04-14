@@ -178,13 +178,15 @@ class Upserter:
                         # ── Deduplicazione ────────────────────────────────────
                         await cur.execute(
                             # Ricarica lo stato guida esistente dentro la transazione.
+                            # IS NOT DISTINCT FROM gestisce NULL-safe equality (NULL=NULL → TRUE).
+                            # Cast ::integer necessario: psycopg3 non inferisce il tipo da NULL.
                             "SELECT id, confidence_level, quality_score "
                             "FROM guides "
                             "WHERE game_id = %s "
-                            "AND (trophy_id = %s OR (trophy_id IS NULL AND %s IS NULL)) "
+                            "AND trophy_id IS NOT DISTINCT FROM %s::integer "
                             "AND guide_type = %s "
                             "LIMIT 1",
-                            (game_id, trophy_id, trophy_id, guide_type),
+                            (game_id, trophy_id, guide_type),
                         )
                         existing_row = await cur.fetchone()
                         existing = None
