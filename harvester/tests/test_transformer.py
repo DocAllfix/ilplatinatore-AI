@@ -84,26 +84,35 @@ class TestDailyLimit:
     @pytest.mark.asyncio
     async def test_returns_false_when_limit_reached(self) -> None:
         """Se _gemini_calls_today >= settings.daily_gemini_limit → False."""
-        # Mocka genai.Client per evitare chiamate reali di rete.
-        with patch("src.transformer.synthesizer.genai.Client", return_value=MagicMock()):
+        # Forza provider deepseek e mocka OpenAI per evitare chiamate reali.
+        with (
+            patch("src.transformer.synthesizer.settings") as mock_settings,
+            patch("openai.OpenAI", return_value=MagicMock()),
+        ):
+            mock_settings.transformer_provider = "deepseek"
+            mock_settings.deepseek_api_key = "test-key"
+            mock_settings.daily_gemini_limit = 10
+
             from src.transformer.synthesizer import GuideSynthesizer
 
             synth = GuideSynthesizer()
+            synth._gemini_calls_today = 10
 
-            with patch("src.transformer.synthesizer.settings") as mock_settings:
-                mock_settings.daily_gemini_limit = 10
-                synth._gemini_calls_today = 10
-
-                assert await synth._check_daily_limit() is False
+            assert await synth._check_daily_limit() is False
 
     @pytest.mark.asyncio
     async def test_returns_true_below_limit(self) -> None:
-        with patch("src.transformer.synthesizer.genai.Client", return_value=MagicMock()):
+        with (
+            patch("src.transformer.synthesizer.settings") as mock_settings,
+            patch("openai.OpenAI", return_value=MagicMock()),
+        ):
+            mock_settings.transformer_provider = "deepseek"
+            mock_settings.deepseek_api_key = "test-key"
+            mock_settings.daily_gemini_limit = 100
+
             from src.transformer.synthesizer import GuideSynthesizer
 
             synth = GuideSynthesizer()
-            with patch("src.transformer.synthesizer.settings") as mock_settings:
-                mock_settings.daily_gemini_limit = 100
-                synth._gemini_calls_today = 5
+            synth._gemini_calls_today = 5
 
-                assert await synth._check_daily_limit() is True
+            assert await synth._check_daily_limit() is True

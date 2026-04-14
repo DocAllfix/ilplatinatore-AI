@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     gemini_api_key: str
     google_embedding_api_key: str
 
+    # ── Provider transformer (deepseek | gemini) ────────────────────────────────
+    deepseek_api_key: str = ""
+    transformer_provider: str = Field(
+        default="deepseek",
+        validation_alias=AliasChoices("TRANSFORMER_PROVIDER", "HARVESTER_TRANSFORMER_PROVIDER"),
+    )
+
     # ── Opzionali senza prefisso HARVESTER_ ─────────────────────────────────────
     igdb_client_id: str = ""
     igdb_client_secret: str = ""

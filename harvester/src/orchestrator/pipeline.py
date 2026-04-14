@@ -20,7 +20,6 @@ from src.config.logger import get_logger
 from src.discovery.seed_loader import SeedLoader
 from src.injector.chunker import chunk_content
 from src.injector.deduplicator import Deduplicator
-from src.injector.embedder import Embedder
 from src.injector.upserter import Upserter
 from src.transformer.quality import calculate_quality_score
 from src.transformer.synthesizer import GuideSynthesizer
@@ -44,7 +43,6 @@ class HarvestPipeline:
         }
         self._synthesizer = GuideSynthesizer()
         self._deduplicator = Deduplicator()
-        self._embedder = Embedder()
         self._upserter = Upserter(deduplicator=self._deduplicator)
         self._logger = logger
 
@@ -127,7 +125,7 @@ class HarvestPipeline:
             self.guides_skipped += 1
             return False
 
-        # STEP 3: Transform (Gemini extract_facts + synthesize_guide).
+        # STEP 3: Transform (LLM extract_facts + synthesize_guide).
         raw_contents = [src.get("raw_content", "") for src in collected]
         try:
             guide = await self._synthesizer.transform(
@@ -169,35 +167,13 @@ class HarvestPipeline:
             self.guides_skipped += 1
             return False
 
-        # STEP 5: Chunk.
+        # STEP 5: Chunk (per contratto API con upserter; embedding gestito da worker Node).
         chunks = chunk_content(
             guide.get("content", ""),
             title=guide.get("title", "Untitled"),
         )
 
-        # STEP 6: Embedding.
-        try:
-            embeddings = await self._embedder.embed_batch(chunks)
-        except Exception as exc:
-            self._logger.error(
-                "embedding fallito",
-                game=game_name,
-                trophy=trophy_name,
-                error=str(exc),
-            )
-            self.guides_failed += 1
-            return False
-
-        if embeddings is None:
-            self._logger.warning(
-                "embedding ritornato None (quota?)",
-                game=game_name,
-                trophy=trophy_name,
-            )
-            self.guides_failed += 1
-            return False
-
-        # STEP 7: Upsert.
+        # STEP 6: Upsert (FF-NEW-3: embedding_pending=true, worker Node farà gli embedding).
         sources_meta = [
             {
                 "source_url": src.get("source_url"),
@@ -210,7 +186,7 @@ class HarvestPipeline:
 
         try:
             guide_id = await self._upserter.upsert_guide(
-                guide, chunks, embeddings, sources_meta
+                guide, chunks, [], sources_meta
             )
         except Exception as exc:
             self._logger.error(

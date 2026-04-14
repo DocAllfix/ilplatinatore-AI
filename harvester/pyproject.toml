@@ -11,6 +11,7 @@ dependencies = [
     "structlog>=24.0",
     "pydantic-settings>=2.2",
     "google-genai>=1.0",
+    "openai>=1.0",
     "protego>=0.3",
 ]
 
