@@ -21,7 +21,7 @@ SELECT g.id, s.subreddit, s.subscriber_count
 FROM games g
 JOIN (VALUES
     ('elden-ring',                      'Eldenring',           3000000),
-    ('god-of-war-ragnarok',             'GodofWar',             800000),
+    ('god-of-war-ragnar-k',             'GodofWar',             800000),
     ('marvels-spider-man-2',            'SpidermanPS4',         600000),
     ('baldurs-gate-3',                  'BaldursGate3',        1500000),
     ('final-fantasy-vii-rebirth',       'FFVIIRemake',          300000),
@@ -33,7 +33,7 @@ JOIN (VALUES
     ('bloodborne',                      'bloodborne',           700000),
     ('resident-evil-4',                 'residentevil',         500000),
     ('resident-evil-village',           'residentevil',         500000),
-    ('uncharted-4-a-thiefs-end',        'uncharted',            200000),
+    ('uncharted-4-a-thief-s-end',        'uncharted',            200000),
     ('ratchet-clank-rift-apart',        'RatchetAndClank',      150000),
     ('returnal',                        'Returnal',             200000),
     ('demons-souls',                    'demonssouls',          200000),
@@ -43,7 +43,7 @@ JOIN (VALUES
     ('the-witcher-3-wild-hunt',         'witcher',             1500000),
     ('red-dead-redemption-2',           'reddeadredemption2',   900000),
     ('death-stranding',                 'DeathStranding',       300000),
-    ('astros-playroom',                 'AstrosBotGame',         80000)
+    ('astro-s-playroom',                'AstrosBotGame',         80000)
 ) AS s(slug, subreddit, subscriber_count)
 ON g.slug = s.slug
 ON CONFLICT (game_id, subreddit) DO NOTHING;
