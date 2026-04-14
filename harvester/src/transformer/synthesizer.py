@@ -22,6 +22,7 @@ from src.transformer.prompts import FACT_EXTRACTION_PROMPT, GUIDE_SYNTHESIS_PROM
 _MODEL = "gemini-2.5-flash"
 _TEMPERATURE = 0.3
 _MAX_OUTPUT_TOKENS = 16384
+_REQUEST_TIMEOUT = 120  # secondi: se Gemini non risponde entro 2 min → eccezione
 
 # Regex per estrarre il contenuto da ```json ... ``` fences eventualmente restituite da Gemini.
 # Usa search (non match) per trovare la fence anche se Gemini aggiunge testo prima/dopo.
@@ -35,7 +36,10 @@ class GuideSynthesizer:
     """Wrapper Gemini per estrazione fatti + sintesi guide."""
 
     def __init__(self) -> None:
-        self._client = genai.Client(api_key=settings.gemini_api_key)
+        self._client = genai.Client(
+            api_key=settings.gemini_api_key,
+            http_options=genai_types.HttpOptions(timeout=_REQUEST_TIMEOUT),
+        )
         self._gemini_calls_today: int = 0
         self._last_reset_date: date = date.today()
         self._logger = get_logger(self.__class__.__name__)
