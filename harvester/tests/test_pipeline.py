@@ -100,8 +100,8 @@ class TestProcessSingleGuide:
             ),
             "game_name": "Elden Ring",
             "trophy_name": None,
-            "guide_type": "trophy_guide",
-            "language": "it",
+            "guide_type": "trophy",
+            "language": "en",
         }
         p._embedder.embed_batch.return_value = [[0.1, 0.2, 0.3]]
         p._upserter.upsert_guide.return_value = 42

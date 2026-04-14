@@ -17,7 +17,7 @@ REGOLE ASSOLUTE:
 4. Ignora opinioni, commenti personali, umorismo, storytelling.
 5. Concentrati su: requisiti, passi necessari, posizioni nel gioco, oggetti necessari, nemici da battere, ordine delle azioni, avvertimenti su punti di non ritorno.
 
-OUTPUT: Rispondi SOLO con un JSON array. Nessun testo prima o dopo. Formato:
+OUTPUT: Rispondi SOLO con un JSON array. Nessun testo prima o dopo. Massimo 40 fatti. Formato:
 [
   {"fact": "descrizione del fatto", "category": "requirement|step|location|warning|tip", "confidence": "high|medium|low"}
 ]

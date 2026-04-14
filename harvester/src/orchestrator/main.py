@@ -77,4 +77,7 @@ async def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
+    # psycopg3 richiede SelectorEventLoop su Windows (ProactorEventLoop non supportato).
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())

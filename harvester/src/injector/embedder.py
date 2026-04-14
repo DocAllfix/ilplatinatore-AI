@@ -12,11 +12,15 @@ import time
 from datetime import date
 
 from google import genai
+from google.genai import types as genai_types
 
 from src.config.logger import get_logger
 from src.config.settings import settings
 
-_MODEL = "text-embedding-004"
+# gemini-embedding-001 è disponibile su v1beta.
+# text-embedding-004 era il modello precedente (v1 only).
+_MODEL = "gemini-embedding-001"
+_EMBEDDING_DIM = 768  # deve corrispondere alla colonna vector(768) in guide_embeddings
 _MAX_BATCH_SIZE = 100
 
 
@@ -45,9 +49,13 @@ class Embedder:
         return True
 
     def _embed_sync(self, texts: list[str]) -> list[list[float]]:
+        config = genai_types.EmbedContentConfig(
+            output_dimensionality=_EMBEDDING_DIM,
+        )
         result = self._client.models.embed_content(
             model=_MODEL,
             contents=texts,
+            config=config,
         )
         return [list(emb.values) for emb in result.embeddings]
 

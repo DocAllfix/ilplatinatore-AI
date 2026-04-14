@@ -21,10 +21,11 @@ from src.transformer.prompts import FACT_EXTRACTION_PROMPT, GUIDE_SYNTHESIS_PROM
 
 _MODEL = "gemini-2.5-flash"
 _TEMPERATURE = 0.3
-_MAX_OUTPUT_TOKENS = 4096
+_MAX_OUTPUT_TOKENS = 16384
 
-# Regex per strippare ```json ... ``` fences eventualmente restituite da Gemini.
-_JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+# Regex per estrarre il contenuto da ```json ... ``` fences eventualmente restituite da Gemini.
+# Usa search (non match) per trovare la fence anche se Gemini aggiunge testo prima/dopo.
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?```", re.DOTALL)
 
 # Regex per il titolo della guida: prima riga ## ...
 _TITLE_RE = re.compile(r"^\s*##\s+(.+?)\s*$", re.MULTILINE)
@@ -59,12 +60,22 @@ class GuideSynthesizer:
 
     # ── Gemini call helper ───────────────────────────────────────────────────
 
-    def _call_gemini(self, system_instruction: str, user_prompt: str) -> str:
-        """Chiamata Gemini sincrona (SDK è sync).  Ritorna response.text."""
+    def _call_gemini(
+        self,
+        system_instruction: str,
+        user_prompt: str,
+        response_mime_type: str | None = None,
+    ) -> str:
+        """Chiamata Gemini sincrona (SDK è sync).  Ritorna response.text.
+
+        response_mime_type: se "application/json", abilita il JSON mode di Gemini
+        (evita fences, forza output JSON valido).  Usato solo per extract_facts.
+        """
         config = genai_types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=_TEMPERATURE,
             max_output_tokens=_MAX_OUTPUT_TOKENS,
+            **({"response_mime_type": response_mime_type} if response_mime_type else {}),
         )
         response = self._client.models.generate_content(
             model=_MODEL,
@@ -95,7 +106,10 @@ class GuideSynthesizer:
         start = time.monotonic()
         try:
             raw_text = await asyncio.to_thread(
-                self._call_gemini, FACT_EXTRACTION_PROMPT, user_prompt
+                self._call_gemini,
+                FACT_EXTRACTION_PROMPT,
+                user_prompt,
+                "application/json",  # JSON mode: no fences, output validato
             )
         except Exception as exc:  # noqa: BLE001 — SDK può lanciare qualsiasi errore
             self._logger.error(
@@ -173,7 +187,13 @@ class GuideSynthesizer:
 
         elapsed_ms = round((time.monotonic() - start) * 1000, 1)
 
-        if "##" not in markdown or "**Gioco:**" not in markdown:
+        # Strip eventuali ```markdown ... ``` fences — Gemini le aggiunge a volte.
+        markdown = _strip_markdown_fences(markdown)
+
+        # Valida il template: deve avere un heading ## e almeno un campo **Game:** o **Gioco:**
+        has_heading = "##" in markdown
+        has_game_field = "**Game:**" in markdown or "**Gioco:**" in markdown
+        if not has_heading or not has_game_field:
             self._logger.error(
                 "output Gemini non rispetta il template",
                 preview=markdown[:300],
@@ -190,7 +210,7 @@ class GuideSynthesizer:
             "content": markdown,
             "game_name": game_name,
             "trophy_name": trophy_name,
-            "guide_type": "trophy_guide",
+            "guide_type": "trophy",
             "language": "en",
             "source": "harvested",
             "confidence_level": "harvested",
@@ -231,9 +251,34 @@ class GuideSynthesizer:
         return guide
 
 
-def _strip_json_fences(text: str) -> str:
-    """Rimuove eventuali ```json ... ``` fences che Gemini potrebbe aggiungere."""
-    m = _JSON_FENCE_RE.match(text.strip())
+_MARKDOWN_FENCE_RE = re.compile(r"```(?:markdown)?\s*\n?(.*?)\n?```\s*$", re.DOTALL)
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Rimuove eventuali ```markdown ... ``` fences dal testo sintetizzato."""
+    stripped = text.strip()
+    m = _MARKDOWN_FENCE_RE.search(stripped)
     if m:
         return m.group(1).strip()
-    return text.strip()
+    return stripped
+
+
+def _strip_json_fences(text: str) -> str:
+    """Rimuove eventuali ```json ... ``` fences che Gemini potrebbe aggiungere.
+
+    Usa search() invece di match() per gestire testo prima/dopo le fences.
+    Fallback: se la fence non è chiusa (max_tokens raggiunto), cerca il primo
+    '[' o '{' e restituisce tutto da lì in poi.
+    """
+    stripped = text.strip()
+    m = _JSON_FENCE_RE.search(stripped)
+    if m:
+        return m.group(1).strip()
+
+    # Fallback: cerca il primo array o oggetto JSON nel testo (fence non chiusa).
+    for start_char in ("[", "{"):
+        idx = stripped.find(start_char)
+        if idx != -1:
+            return stripped[idx:]
+
+    return stripped

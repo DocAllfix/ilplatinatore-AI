@@ -55,7 +55,7 @@ _COMPLETE_GUIDE = {
     "content": _COMPLETE_CONTENT,
     "game_name": "Elden Ring",
     "trophy_name": "Platino",
-    "guide_type": "trophy_guide",
+    "guide_type": "trophy",
     "language": "en",
     "source": "harvested",
     "confidence_level": "harvested",
