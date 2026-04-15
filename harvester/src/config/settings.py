@@ -27,9 +27,13 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TRANSFORMER_PROVIDER", "HARVESTER_TRANSFORMER_PROVIDER"),
     )
 
+    # ── PSN (opzionale — il sistema funziona anche senza) ───────────────────────
+    psn_npsso: str = ""  # Cookie NPSSO da PlayStation.com — se vuoto: fetcher disabilitato
+
     # ── Opzionali senza prefisso HARVESTER_ ─────────────────────────────────────
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
+    steam_api_key: str = ""  # Steam Web API key — se vuoto: Steam fetcher disabilitato
 
     # ── Opzionali con prefisso HARVESTER_ ───────────────────────────────────────
     # AliasChoices: prova HARVESTER_LOG_LEVEL prima, poi LOG_LEVEL come fallback
