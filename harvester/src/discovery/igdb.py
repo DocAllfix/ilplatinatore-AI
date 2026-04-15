@@ -653,9 +653,11 @@ class IGDBDiscovery:
         for batch_start in range(0, len(igdb_ids), 500):
             batch = igdb_ids[batch_start : batch_start + 500]
             ids_str = ",".join(str(i) for i in batch)
+            # IGDB v4: `category` è deprecato, si usa `external_game_source`
+            # (FK verso /external_game_sources). Steam = source id 1.
             body = (
-                f"fields game, uid, category;"
-                f" where game = ({ids_str}) & category = 1;"
+                f"fields game, uid, external_game_source;"
+                f" where game = ({ids_str}) & external_game_source = 1;"
                 f" limit 500;"
             )
             try:
