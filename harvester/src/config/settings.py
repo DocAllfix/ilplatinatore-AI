@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     igdb_client_id: str = ""
     igdb_client_secret: str = ""
     steam_api_key: str = ""  # Steam Web API key — se vuoto: Steam fetcher disabilitato
+    youtube_api_key: str = ""  # YouTube Data API v3 key — se vuoto: YouTube fetcher disabilitato
 
     # ── Opzionali con prefisso HARVESTER_ ───────────────────────────────────────
     # AliasChoices: prova HARVESTER_LOG_LEVEL prima, poi LOG_LEVEL come fallback
@@ -49,6 +50,12 @@ class Settings(BaseSettings):
         default=50000,
         validation_alias=AliasChoices(
             "HARVESTER_DAILY_EMBEDDING_LIMIT", "DAILY_EMBEDDING_LIMIT"
+        ),
+    )
+    daily_youtube_quota_limit: int = Field(
+        default=8000,
+        validation_alias=AliasChoices(
+            "HARVESTER_DAILY_YOUTUBE_QUOTA_LIMIT", "DAILY_YOUTUBE_QUOTA_LIMIT"
         ),
     )
     scrape_delay_seconds: float = Field(

@@ -115,6 +115,42 @@ class TestProcessSingleGuide:
         p._upserter.upsert_guide.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_guide_type_override_applies(self) -> None:
+        """guide_type_override deve sovrascrivere quello del synthesizer."""
+        p = _make_pipeline()
+        p._collectors["powerpyx"].collect.return_value = {
+            "raw_content": "x" * 2000,
+            "source_url": "https://powerpyx.com/x/",
+            "source_domain": "powerpyx.com",
+            "content_hash": "h",
+        }
+        p._deduplicator.source_already_processed.return_value = False
+        p._synthesizer.transform.return_value = {
+            "title": "T",
+            "content": (
+                "## Section\n\n**Gioco:** G\n\n1. a\n2. b\n3. c\n\n"
+                "Consigli e strategie utili per il giocatore."
+            ),
+            "game_name": "G",
+            "trophy_name": None,
+            "guide_type": "trophy",  # synthesizer hardcoda
+            "language": "en",
+        }
+        p._upserter.upsert_guide.return_value = 1
+
+        ok = await p.process_single_guide(
+            "G", "Some Boss",
+            ["https://powerpyx.com/x/"],
+            guide_type_override="boss",
+        )
+
+        assert ok is True
+        # Ispeziona il guide dict passato a upsert_guide
+        call_args = p._upserter.upsert_guide.await_args
+        guide_arg = call_args.args[0]
+        assert guide_arg["guide_type"] == "boss"
+
+    @pytest.mark.asyncio
     async def test_returns_false_when_already_processed(self) -> None:
         """Se tutte le sorgenti sono già processate → skip."""
         p = _make_pipeline()

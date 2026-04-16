@@ -271,12 +271,18 @@ class Upserter:
 
                         # ── harvest_sources ──────────────────────────────────
                         for src in sources:
+                            import json as _json
+
+                            meta = src.get("metadata") or src.get("extra") or {}
                             await cur.execute(
                                 # Insert tracciabilità fonte; ON CONFLICT aggiorna hash/timestamp.
+                                # source_type e metadata preservati dal primo insert (no override
+                                # su ON CONFLICT per non declassare community→primary su re-scrape).
                                 "INSERT INTO harvest_sources ("
                                 " guide_id, source_url, source_domain, "
-                                " content_hash, raw_content_length"
-                                ") VALUES (%s,%s,%s,%s,%s) "
+                                " content_hash, raw_content_length,"
+                                " source_type, metadata"
+                                ") VALUES (%s,%s,%s,%s,%s,%s,%s) "
                                 "ON CONFLICT (source_url) DO UPDATE SET "
                                 " guide_id = EXCLUDED.guide_id,"
                                 " content_hash = EXCLUDED.content_hash,"
@@ -289,6 +295,8 @@ class Upserter:
                                     src.get("content_hash"),
                                     src.get("raw_content_length")
                                     or len(src.get("raw_content") or ""),
+                                    src.get("source_type", "primary"),
+                                    _json.dumps(meta),
                                 ),
                             )
 
