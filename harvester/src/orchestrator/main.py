@@ -39,6 +39,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=["seed", "update"],
         help="Modalità di esecuzione (default: seed)",
     )
+    parser.add_argument(
+        "--seed-file",
+        default="seeds/top_games.json",
+        help="Percorso del seed file (default: seeds/top_games.json)",
+    )
     return parser.parse_args(argv)
 
 
@@ -58,7 +63,7 @@ async def main(argv: list[str] | None = None) -> None:
 
     try:
         if mode == "seed":
-            stats = await pipeline.run_seed_batch("seeds/top_games.json")
+            stats = await pipeline.run_seed_batch(args.seed_file)
             touch_heartbeat()
             logger.info("seed_batch_complete", **stats)
         elif mode == "update":
