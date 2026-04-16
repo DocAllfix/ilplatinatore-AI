@@ -859,12 +859,15 @@ class HarvestPipeline:
                     continue
 
                 # Costruisci URL da fonti multiple per lo stesso gioco.
-                # PSNProfiles richiede un ID numerico non disponibile nel seed:
-                # viene saltata finché non sarà disponibile un endpoint di discovery.
-                urls = [
-                    f"https://powerpyx.com/{slug}-trophy-guide/",
-                    f"https://www.trueachievements.com/game/{slug}/achievements",
-                ]
+                # powerpyx_url / trueachievements_url espliciti nel seed
+                # hanno priorità sullo slug auto-costruito.
+                powerpyx_url = game.get("powerpyx_url") or (
+                    f"https://www.powerpyx.com/{slug}-trophy-guide/"
+                )
+                ta_url = game.get("trueachievements_url") or (
+                    f"https://www.trueachievements.com/game/{slug}/achievements"
+                )
+                urls = [powerpyx_url, ta_url]
                 await self.process_single_guide(title, None, urls)
 
                 # Persisti progresso dopo ogni gioco.
