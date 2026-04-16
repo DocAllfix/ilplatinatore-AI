@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from src.collectors.base import BaseCollector
+from src.collectors.fandom import FandomCollector
 from src.collectors.fextralife import FextralifeCollector
 from src.collectors.ign import IGNCollector
 from src.collectors.powerpyx import PowerPyxCollector
@@ -50,6 +51,7 @@ class HarvestPipeline:
             "reddit": RedditCollector(),
             "steam_community": SteamCommunityGuidesCollector(),
             "youtube": YouTubeCollector(),
+            "fandom": FandomCollector(),
         }
         self._synthesizer = GuideSynthesizer()
         self._deduplicator = Deduplicator()
@@ -624,6 +626,102 @@ class HarvestPipeline:
             "process_youtube_guides completato",
             game_id=game_id,
             quota_used=yt._quota_used,
+            **stats,
+        )
+        return stats
+
+    async def process_fandom_content(
+        self,
+        game_id: int,
+        pages: list[str] | None = None,
+        wiki_subdomain: str | None = None,
+        limit: int = 10,
+    ) -> dict[str, int]:
+        """Raccoglie contenuti wiki da Fandom per un gioco.
+
+        Se `wiki_subdomain` è fornito, usa search_wiki per trovare pagine.
+        Se `pages` è fornito, le raccoglie direttamente.
+        Entrambi possono essere usati insieme.
+        """
+        stats: dict[str, int] = {"fetched": 0, "injected": 0, "skipped": 0}
+
+        pool = await _get_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    # Recupera nome del gioco per query semantica.
+                    "SELECT title FROM games WHERE id = %s LIMIT 1",
+                    (game_id,),
+                )
+                row = await cur.fetchone()
+
+        if not row:
+            self._logger.warning(
+                "process_fandom_content: game_id non trovato", game_id=game_id
+            )
+            return stats
+
+        game_name: str = row[0]
+        fandom: FandomCollector = self._collectors["fandom"]  # type: ignore[assignment]
+
+        # Candidati: pagine esplicite + risultati di ricerca.
+        candidate_pages: list[tuple[str, str]] = []  # (subdomain, title)
+
+        if pages and wiki_subdomain:
+            for p in pages:
+                candidate_pages.append((wiki_subdomain, p))
+
+        if wiki_subdomain:
+            queries = [game_name, f"{game_name} boss guide", f"{game_name} weapon build"]
+            for query in queries:
+                titles = await fandom.search_wiki(wiki_subdomain, query, limit=limit)
+                for t in titles:
+                    entry = (wiki_subdomain, t)
+                    if entry not in candidate_pages:
+                        candidate_pages.append(entry)
+
+        # Deduplicazione URL già visti in questo run.
+        seen_urls: set[str] = set()
+
+        for subdomain, title in candidate_pages:
+            page_data = await fandom.fetch_page(subdomain, title)
+            if not page_data:
+                stats["skipped"] += 1
+                continue
+
+            page_url = page_data["page_url"]
+            if page_url in seen_urls:
+                stats["skipped"] += 1
+                continue
+            seen_urls.add(page_url)
+
+            stats["fetched"] += 1
+
+            raw = await fandom.extract(
+                page_data["html_text"],
+                page_url,
+                categories=page_data["categories"],
+                page_title=page_data["page_title"],
+            )
+            if not raw:
+                stats["skipped"] += 1
+                continue
+
+            injected = await self._inject_synthetic(
+                raw,
+                game_name=game_name,
+                topic=raw.get("topic") or title,
+                guide_type=raw.get("guide_type", "walkthrough"),
+            )
+            if injected:
+                stats["injected"] += 1
+            else:
+                stats["skipped"] += 1
+
+        self._logger.info(
+            "process_fandom_content completato",
+            game_id=game_id,
+            wiki_subdomain=wiki_subdomain,
             **stats,
         )
         return stats

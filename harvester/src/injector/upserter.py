@@ -32,11 +32,19 @@ def generate_slug(
     game_name: str,
     trophy_name: str | None,
     guide_type: str,
+    topic: str | None = None,
 ) -> str:
-    """Slug URL-safe per la guida: `guida-{game}-{trophy?}-{type}`."""
+    """Slug URL-safe per la guida: `guida-{game}-{trophy_or_topic?}-{type}`.
+
+    `topic` è usato come discriminatore quando `trophy_name` è None e la guida
+    è granulare (boss, lore, build, collectible). Garantisce che guide diverse
+    dello stesso gioco con lo stesso guide_type non collidano sullo slug.
+    """
     parts = ["guida", _slugify(game_name)]
     if trophy_name:
         parts.append(_slugify(trophy_name))
+    elif topic:
+        parts.append(_slugify(topic))
     parts.append(_slugify(guide_type))
     slug = "-".join(p for p in parts if p)
     # Collassa eventuali trattini doppi.
@@ -144,6 +152,7 @@ class Upserter:
         """
         game_name = guide.get("game_name", "") or ""
         trophy_name = guide.get("trophy_name")
+        topic = guide.get("topic") or None
         guide_type = guide.get("guide_type", "walkthrough")
         title = guide.get("title", "Untitled")
         content = guide.get("content", "")
@@ -160,7 +169,7 @@ class Upserter:
             )
             return None
 
-        slug = generate_slug(game_name, trophy_name, guide_type)
+        slug = generate_slug(game_name, trophy_name, guide_type, topic=topic)
 
         pool = await _get_pool()
         try:
@@ -180,13 +189,16 @@ class Upserter:
                             # Ricarica lo stato guida esistente dentro la transazione.
                             # IS NOT DISTINCT FROM gestisce NULL-safe equality (NULL=NULL → TRUE).
                             # Cast ::integer necessario: psycopg3 non inferisce il tipo da NULL.
+                            # topic incluso per evitare falsi match tra guide granulari diverse
+                            # (es. due boss guide dello stesso gioco con topic diverso).
                             "SELECT id, confidence_level, quality_score "
                             "FROM guides "
                             "WHERE game_id = %s "
                             "AND trophy_id IS NOT DISTINCT FROM %s::integer "
                             "AND guide_type = %s "
+                            "AND topic IS NOT DISTINCT FROM %s "
                             "LIMIT 1",
-                            (game_id, trophy_id, guide_type),
+                            (game_id, trophy_id, guide_type, topic),
                         )
                         existing_row = await cur.fetchone()
                         existing = None
@@ -231,16 +243,18 @@ class Upserter:
                         # ── UPSERT guides ────────────────────────────────────
                         await cur.execute(
                             # Upsert guida con protezione 'verified' nel WHERE.
+                            # topic incluso per guide granulari (boss, lore, build, ecc.)
                             "INSERT INTO guides ("
                             " game_id, trophy_id, title, slug, content, language,"
                             " guide_type, source, quality_score, confidence_level,"
-                            " embedding_pending, updated_at"
-                            ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,NOW()) "
+                            " topic, embedding_pending, updated_at"
+                            ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,NOW()) "
                             "ON CONFLICT (slug) DO UPDATE SET "
                             " title = EXCLUDED.title,"
                             " content = EXCLUDED.content,"
                             " quality_score = EXCLUDED.quality_score,"
                             " confidence_level = EXCLUDED.confidence_level,"
+                            " topic = EXCLUDED.topic,"
                             " embedding_pending = true,"
                             " updated_at = NOW() "
                             "WHERE guides.confidence_level != 'verified' "
@@ -256,6 +270,7 @@ class Upserter:
                                 source,
                                 quality_score,
                                 confidence_level,
+                                topic,
                             ),
                         )
                         row = await cur.fetchone()
