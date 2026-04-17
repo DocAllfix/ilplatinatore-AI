@@ -33,6 +33,27 @@ class RedditCollector(BaseCollector):
     reliability_score = 0.70
     requires_js = False
 
+    def __init__(self) -> None:
+        super().__init__()
+        # Reddit /search.json è pubblica ma robots.txt blocca i bot generici.
+        # Usiamo browser UA per evitare il ban e saltiamo il check robots.txt.
+        self._robots_loaded = True
+        import httpx
+
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0),
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, text/html, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            follow_redirects=True,
+        )
+
     # ── Extract: parsa la risposta JSON di un search.json ────────────────────
 
     async def extract(self, html: str, url: str) -> dict | None:

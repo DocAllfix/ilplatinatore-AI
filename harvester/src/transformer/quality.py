@@ -24,8 +24,8 @@ _REQUIRED_FIELDS = (
 _STEP_RE = re.compile(r"^\s*(\d+)[\.\)]\s+", re.MULTILINE)
 _TIPS_RE = re.compile(r"consigli|tips|strateg", re.IGNORECASE)
 
-_MIN_FULL_LENGTH = 500
-_MIN_FULL_STEPS = 3
+_MIN_FULL_LENGTH = 2000  # soglia saturazione lunghezza: 500 era troppo bassa (un paragrafo)
+_MIN_FULL_STEPS = 5      # soglia saturazione step: 3 è il minimo assoluto, 5 è una guida reale
 
 
 def calculate_quality_score(guide: dict) -> float:

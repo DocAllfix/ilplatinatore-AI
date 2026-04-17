@@ -67,12 +67,21 @@ class Upserter:
     # ── Games ────────────────────────────────────────────────────────────────
 
     async def find_or_create_game(self, game_name: str) -> int:
-        """Trova il game per slug o alias; se non esiste, INSERT e ritorna l'id."""
+        """Trova il game per slug o alias; se non esiste, INSERT e ritorna l'id.
+
+        Lookup in ordine di priorità:
+          1. games.slug — match diretto per slug generato dal titolo.
+          2. game_aliases.alias — match esatto case-insensitive sul titolo.
+          3. game_aliases.alias — match sullo slug del titolo (catch varianti
+             diacritiche: "Ragnarok" trova "god-of-war-ragnarok" già in aliases
+             perché IGDB slug viene salvato da _insert_aliases).
+          4. INSERT — il gioco è genuinamente nuovo.
+        """
         slug = _slugify(game_name)
         pool = await _get_pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                # Match diretto per slug.
+                # 1. Match diretto per slug.
                 await cur.execute(
                     "SELECT id FROM games WHERE slug = %s LIMIT 1",
                     (slug,),
@@ -81,7 +90,7 @@ class Upserter:
                 if row:
                     return int(row["id"])
 
-                # Fuzzy match via game_aliases (case-insensitive).
+                # 2. Match alias case-insensitive (titolo completo).
                 await cur.execute(
                     # Cerca in aliases un match esatto (case-insensitive) per game_name.
                     "SELECT game_id FROM game_aliases "
@@ -92,7 +101,25 @@ class Upserter:
                 if row:
                     return int(row["game_id"])
 
-                # Non esiste: INSERT con title + slug.
+                # 3. Match alias per slug — cattura varianti diacritiche.
+                # "God of War Ragnarok" → slug "god-of-war-ragnarok" → trova l'alias
+                # IGDB "god-of-war-ragnarok" già presente in game_aliases per Ragnarök.
+                # Questo previene duplicati quando il web scraper omette diacritici.
+                await cur.execute(
+                    "SELECT game_id FROM game_aliases "
+                    "WHERE lower(alias) = %s LIMIT 1",
+                    (slug,),
+                )
+                row = await cur.fetchone()
+                if row:
+                    self._logger.debug(
+                        "find_or_create_game: match alias-slug (variante diacritica?)",
+                        game_name=game_name,
+                        slug=slug,
+                    )
+                    return int(row["game_id"])
+
+                # 4. Non esiste: INSERT con title + slug.
                 await cur.execute(
                     # Crea un nuovo game con slug univoco.
                     "INSERT INTO games (title, slug) VALUES (%s, %s) "
@@ -345,11 +372,16 @@ class Upserter:
     # ── Helpers TX-scoped (riutilizzano il cursor della transazione) ─────────
 
     async def _find_or_create_game_tx(self, cur: Any, game_name: str) -> int:
+        """Versione TX-scoped di find_or_create_game — stessa logica a 4 step."""
         slug = _slugify(game_name)
+
+        # 1. Match diretto per slug.
         await cur.execute("SELECT id FROM games WHERE slug = %s LIMIT 1", (slug,))
         row = await cur.fetchone()
         if row:
             return int(row["id"])
+
+        # 2. Match alias case-insensitive (titolo completo).
         await cur.execute(
             "SELECT game_id FROM game_aliases WHERE lower(alias) = lower(%s) LIMIT 1",
             (game_name,),
@@ -357,6 +389,19 @@ class Upserter:
         row = await cur.fetchone()
         if row:
             return int(row["game_id"])
+
+        # 3. Match alias per slug — cattura varianti diacritiche/apostrofi.
+        # Es.: "God of War Ragnarok" → slug "god-of-war-ragnarok" → trova l'alias
+        # IGDB "god-of-war-ragnarok" già salvato in game_aliases per Ragnarök.
+        await cur.execute(
+            "SELECT game_id FROM game_aliases WHERE lower(alias) = %s LIMIT 1",
+            (slug,),
+        )
+        row = await cur.fetchone()
+        if row:
+            return int(row["game_id"])
+
+        # 4. INSERT nuovo gioco.
         await cur.execute(
             "INSERT INTO games (title, slug) VALUES (%s, %s) "
             "ON CONFLICT (slug) DO UPDATE SET title = EXCLUDED.title RETURNING id",

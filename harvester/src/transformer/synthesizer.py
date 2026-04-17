@@ -264,7 +264,7 @@ class GuideSynthesizer:
         markdown = _strip_markdown_fences(markdown)
 
         has_heading = "##" in markdown
-        has_game_field = "**Game:**" in markdown or "**Gioco:**" in markdown
+        has_game_field = "**Game:**" in markdown
         if not has_heading or not has_game_field:
             self._logger.error(
                 "output non rispetta il template",

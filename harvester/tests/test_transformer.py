@@ -27,28 +27,33 @@ class TestPrompts:
 # ── Quality score ────────────────────────────────────────────────────────────
 
 
-_COMPLETE_CONTENT = """## Platino — Elden Ring
+_COMPLETE_CONTENT = """## Platinum — Elden Ring
 
-**Gioco:** Elden Ring
-**Tipo:** Platino
-**Difficoltà:** 7/10
-**Tempo stimato:** 80 ore
-**Missabile:** No
+**Game:** Elden Ring
+**Type:** Platinum
+**Difficulty:** 7/10
+**Estimated Time:** 80 hours
+**Missable:** No
 
-### Descrizione
-Guida completa per ottenere il platino di Elden Ring.
+### Description
+Complete guide to obtaining the platinum trophy in Elden Ring. This requires finishing
+the main story, collecting all Great Runes, and completing multiple NPC questlines.
 
-### Come Ottenere Questo Trofeo
-1. Completa la storia principale.
-2. Ottieni tutti i Great Runes.
-3. Completa le quest di Ranni e Volcano Manor.
-4. Sblocca tutti i finali in new game plus.
+### How to Obtain This Trophy
+1. Complete the main story by defeating the Elden Beast.
+2. Obtain all six Great Runes from the major bosses.
+3. Complete Ranni the Witch's questline.
+4. Complete the Volcano Manor questline with Rykard.
+5. Unlock all available endings in subsequent playthroughs.
 
-### Consigli e Strategie
-Porta sempre una build magica di backup. Fai save manuali prima di scelte irreversibili.
+### Tips and Strategies
+Always carry a backup magic build for tough encounters. Save manually before
+irreversible choices such as advancing NPC questlines. Use spirit ashes to
+help with difficult boss fights.
 
-### Prerequisiti e Avvertenze
-Alcune quest sono missabili: segui una checklist affidabile."""
+### Prerequisites and Warnings
+Several questlines are missable and must be completed before advancing the story
+too far. Follow a reliable checklist to ensure full completion."""
 
 _COMPLETE_GUIDE = {
     "title": "Platino — Elden Ring",

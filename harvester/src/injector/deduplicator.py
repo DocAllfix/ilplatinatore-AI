@@ -65,11 +65,17 @@ class Deduplicator:
 
         - None → upsert (nuova guida)
         - verified → MAI sovrascrivere
-        - new_quality > existing_quality → upsert (miglioramento)
+        - new_quality >= existing_quality → upsert (miglioramento o regen da nuove fonti)
         - altrimenti → skip
+
+        Note: usato >= invece di > per consentire l'aggiornamento quando la qualità
+        è identica (1.0 vs 1.0). Questo accade quando le sorgenti cambiano (hash
+        diverso → source_already_processed restituisce False) ma il LLM produce
+        comunque output top-quality. Senza >=, le guide non potrebbero mai essere
+        aggiornate una volta create, rendendo impossibile la rigenerazione.
         """
         if existing is None:
             return True
         if existing.get("confidence_level") == "verified":
             return False
-        return new_quality_score > float(existing.get("quality_score", 0.0))
+        return new_quality_score >= float(existing.get("quality_score", 0.0))

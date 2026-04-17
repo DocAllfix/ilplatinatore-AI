@@ -78,6 +78,16 @@ class TestShouldUpsert:
         existing = {"id": 1, "confidence_level": "harvested", "quality_score": 0.8}
         assert Deduplicator.should_upsert(existing, 0.4) is False
 
+    def test_equal_quality_does_upsert(self) -> None:
+        """Qualità uguale → upsert consentito.
+
+        Necessario perché il LLM produce sempre quality=1.0 per guide ben formate.
+        Senza questo, una guida con label italiane non potrebbe mai essere rigenerata
+        in inglese, poiché il confronto 1.0 > 1.0 sarebbe sempre False.
+        """
+        existing = {"id": 1, "confidence_level": "harvested", "quality_score": 1.0}
+        assert Deduplicator.should_upsert(existing, 1.0) is True
+
 
 class TestSourceAlreadyProcessed:
     @pytest.mark.asyncio
