@@ -8,6 +8,8 @@ import { logger } from "@/utils/logger.js";
 import { requestLogger } from "@/middleware/requestLogger.js";
 import { errorHandler } from "@/middleware/errorHandler.js";
 import { rootRouter } from "@/routes/index.js";
+import { startEmbeddingWorker } from "@/workers/embedding.worker.js";
+import { startEmbeddingScheduler } from "@/schedulers/embedding.scheduler.js";
 
 const app = express();
 
@@ -44,3 +46,7 @@ app.listen(env.PORT, () => {
     env.PORT,
   );
 });
+
+// ── Background workers & scheduler (stesso processo, 1 replica — regola #11 CLAUDE.md)
+startEmbeddingWorker();
+startEmbeddingScheduler();
