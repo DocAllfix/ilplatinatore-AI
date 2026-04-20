@@ -1,16 +1,19 @@
 /**
  * Funzioni pure del RAG: tipi, Reciprocal Rank Fusion, classificazione match,
- * assemblaggio contesto LLM. Nessun I/O (no DB, no Redis, no API). Testabili in isolamento.
+ * assemblaggio contesto LLM, ranking boost per confidence/source.
+ * Nessun I/O (no DB, no Redis, no API). Testabili in isolamento.
  */
 
 export type MatchType = "exact" | "partial" | "none";
+export type RetrievalSource = "trophy" | "topic" | "generic";
+export type ConfidenceLevel = "verified" | "harvested" | "generated" | "unverified";
+// Allineato a migration 004: CHECK (source IN ('wordpress','chatbot','manual','scraping','harvested')).
+export type GuideSource = "wordpress" | "chatbot" | "manual" | "scraping" | "harvested";
 
 export interface RagResult {
   guideId: number;
   title: string;
   slug: string;
-  // | undefined esplicito: compatibile con exactOptionalPropertyTypes quando il
-  // valore deriva da un hit di vector OR fts che può mancare.
   chunkText?: string | undefined;
   content?: string | undefined;
   language: string;
@@ -21,9 +24,13 @@ export interface RagResult {
   ftsScore: number;
   rrfScore: number;
   matchType: MatchType;
+  // Aggiunti in Fase 13.3 — popolati opzionalmente dai retrieval specializzati.
+  confidenceLevel?: ConfidenceLevel | undefined;
+  source?: GuideSource | undefined;
+  trophyId?: number | null | undefined;
+  retrievalSource?: RetrievalSource | undefined;
 }
 
-// Shape minima richiesta da reciprocalRankFusion — facilita test con fixture leggere.
 export interface VectorRankItem {
   guide_id: number;
   vector_score: number;
@@ -33,19 +40,32 @@ export interface FtsRankItem {
   fts_score: number;
 }
 
-// RRF constant (Cormack et al. 2009). 40-80 tipici; 60 è lo standard de-facto.
+export interface RankingBoostConfig {
+  // Moltiplicatori dello rrfScore (1.0 = no effect, >1 boost, <1 penalty).
+  bySource: Partial<Record<GuideSource, number>>;
+  byConfidence: Partial<Record<ConfidenceLevel, number>>;
+}
+
+/**
+ * Default boost conforme a DEEP_SEARCH_ADDITIONS.md §13:
+ *   "source='wordpress' +0.2, 'harvested' +0.1"
+ * Traduzione additiva → moltiplicativa: +0.2 → ×1.20, +0.1 → ×1.10.
+ * Estensione coerente: verified +0.2 (match wordpress), unverified ×0.95 (lieve penalty).
+ * Valori configurabili via override — es. SystemConfig per A/B tuning in prod.
+ */
+export const DEFAULT_BOOST: RankingBoostConfig = {
+  bySource: { wordpress: 1.2 },
+  byConfidence: { verified: 1.2, harvested: 1.1, generated: 1.0, unverified: 0.95 },
+};
+
+// RRF constant (Cormack et al. 2009).
 export const RRF_K = 60;
 
 const CHARS_PER_TOKEN = 4;
 
 /**
- * Reciprocal Rank Fusion: combina N ranking indipendenti in uno singolo.
- * Formula: RRF(d) = Σ 1/(k + rank_i(d)) con rank 1-based.
- *
- * Dedup guide-level: se un guide appare più volte nello stesso ranking (chunk multipli
- * dal vector search), conta la PRIMA occorrenza e i duplicati NON consumano rank.
- * Motivazione: il fusion è guide-vs-guide, non chunk-vs-chunk — un chunk duplicato
- * non deve penalizzare il rank di un altro guide.
+ * Reciprocal Rank Fusion: combina N ranking indipendenti.
+ * Dedup guide-level: chunk duplicati NON consumano rank (il fusion è guide-vs-guide).
  */
 export function reciprocalRankFusion(
   vectorRanking: VectorRankItem[],
@@ -97,10 +117,7 @@ export function reciprocalRankFusion(
 
 /**
  * Classifica il top result secondo soglie di similarità vettoriale.
- *  - exact   (score > high): guida nel DB, LLM deve solo riformattare.
- *  - partial (low ≤ score ≤ high): arricchire con scraping.
- *  - none    (score < low | undefined): scraping completo.
- * Bordi: score==high → partial (strictly greater per exact), score==low → partial.
+ * Bordi: score==high → partial, score==low → partial. Pura, no mix di dimensioni.
  */
 export function classifyMatch(
   topVectorScore: number | undefined,
@@ -113,10 +130,33 @@ export function classifyMatch(
 }
 
 /**
- * Concatena i risultati in un contesto testuale per l'LLM.
- * maxTokens stimato a 4 char/token; truncation alla fine dell'ultimo blocco che sta.
- * Ordine preservato: primo input = massima priorità in testa.
- * Blocchi con body vuoto sono saltati (ma il numero FONTE resta legato all'indice originale).
+ * Applica boost moltiplicativo a rrfScore per source + confidenceLevel,
+ * poi re-ordina DESC. Immutable: ritorna nuovo array, non muta l'input.
+ * Se source o confidenceLevel sono undefined, il factor relativo è 1.0 (neutrale).
+ */
+export function applyRankingBoost(
+  results: RagResult[],
+  config: RankingBoostConfig = DEFAULT_BOOST,
+): RagResult[] {
+  const boosted = results.map((r) => {
+    const sourceFactor = r.source !== undefined
+      ? (config.bySource[r.source] ?? 1)
+      : 1;
+    const confidenceFactor = r.confidenceLevel !== undefined
+      ? (config.byConfidence[r.confidenceLevel] ?? 1)
+      : 1;
+    const factor = sourceFactor * confidenceFactor;
+    // Copia per immutabilità; se factor=1 lasciamo invariato il valore.
+    return factor === 1 ? { ...r } : { ...r, rrfScore: r.rrfScore * factor };
+  });
+  boosted.sort((a, b) => b.rrfScore - a.rrfScore);
+  return boosted;
+}
+
+/**
+ * Concatena risultati in contesto testuale per l'LLM.
+ * 4 char/token, truncation fine-blocco, skip body vuoti (il numero FONTE
+ * resta legato all'indice originale per tracciabilità).
  */
 export function assembleContext(results: RagResult[], maxTokens = 8000): string {
   const maxChars = maxTokens * CHARS_PER_TOKEN;
@@ -130,7 +170,7 @@ export function assembleContext(results: RagResult[], maxTokens = 8000): string 
 
     const header = `--- FONTE ${i + 1}: ${r.title} (score: ${r.rrfScore.toFixed(4)}) ---`;
     const block = `${header}\n${body}`;
-    const separatorSize = parts.length > 0 ? 2 : 0; // "\n\n"
+    const separatorSize = parts.length > 0 ? 2 : 0;
     const blockSize = block.length + separatorSize;
 
     if (total + blockSize > maxChars) {

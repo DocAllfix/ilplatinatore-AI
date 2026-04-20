@@ -6,11 +6,34 @@ import {
   reciprocalRankFusion,
   classifyMatch,
   assembleContext,
+  applyRankingBoost,
+  DEFAULT_BOOST,
   type RagResult,
 } from "@/services/rag.fusion.js";
+import {
+  retrieveForTrophy,
+  retrieveForTopic,
+} from "@/services/rag.specialized.js";
 
-export type { MatchType, RagResult } from "@/services/rag.fusion.js";
-export { reciprocalRankFusion, classifyMatch, assembleContext };
+export type {
+  MatchType,
+  RagResult,
+  ConfidenceLevel,
+  GuideSource,
+  RetrievalSource,
+  RankingBoostConfig,
+} from "@/services/rag.fusion.js";
+export type {
+  RetrieveForTrophyParams,
+  RetrieveForTopicParams,
+} from "@/services/rag.specialized.js";
+export {
+  reciprocalRankFusion,
+  classifyMatch,
+  assembleContext,
+  applyRankingBoost,
+  DEFAULT_BOOST,
+};
 
 export interface RagSearchOptions {
   gameId?: number;
@@ -261,6 +284,10 @@ export const RagService = {
   classifyMatch,
   assembleContext,
   reciprocalRankFusion,
+  applyRankingBoost,
+  // Fase 13.3 — retrieval specializzati trophy/topic-aware.
+  retrieveForTrophy,
+  retrieveForTopic,
 
   /** Forza il reload delle soglie al prossimo accesso (uso: test / admin panel). */
   invalidateThresholdsCache(): void {

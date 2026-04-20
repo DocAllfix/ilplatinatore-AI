@@ -3,6 +3,8 @@ import {
   reciprocalRankFusion,
   classifyMatch,
   assembleContext,
+  applyRankingBoost,
+  DEFAULT_BOOST,
   type RagResult,
 } from "@/services/rag.service.js";
 
@@ -182,5 +184,79 @@ describe("assembleContext", () => {
 
   it("input vuoto → stringa vuota", () => {
     expect(assembleContext([])).toBe("");
+  });
+});
+
+describe("applyRankingBoost", () => {
+  const r = (
+    guideId: number,
+    rrfScore: number,
+    overrides: Partial<RagResult> = {},
+  ): RagResult => ({
+    guideId,
+    title: `G${guideId}`,
+    slug: `g-${guideId}`,
+    language: "it",
+    qualityScore: 80,
+    verified: true,
+    guideType: "trophy",
+    vectorScore: 0,
+    ftsScore: 0,
+    rrfScore,
+    matchType: "partial",
+    ...overrides,
+  });
+
+  it("applica moltiplicatore source+confidence e riordina DESC", () => {
+    // g1: wordpress+verified → 0.10 * 1.2 * 1.2 = 0.144
+    // g2: harvested (source non boostato) + generated → 0.12 * 1 * 1 = 0.12
+    const input = [
+      r(1, 0.1, { source: "wordpress", confidenceLevel: "verified" }),
+      r(2, 0.12, { source: "harvested", confidenceLevel: "generated" }),
+    ];
+    const boosted = applyRankingBoost(input, DEFAULT_BOOST);
+    expect(boosted[0]!.guideId).toBe(1);
+    expect(boosted[0]!.rrfScore).toBeCloseTo(0.144, 6);
+    expect(boosted[1]!.rrfScore).toBeCloseTo(0.12, 6);
+  });
+
+  it("factor=1 se source/confidence assenti → score invariato", () => {
+    const input = [r(1, 0.5), r(2, 0.3)];
+    const boosted = applyRankingBoost(input);
+    expect(boosted[0]!.rrfScore).toBe(0.5);
+    expect(boosted[1]!.rrfScore).toBe(0.3);
+  });
+
+  it("immutabile: non muta l'array input né i suoi elementi", () => {
+    const orig = r(1, 0.1, { source: "wordpress", confidenceLevel: "verified" });
+    const input = [orig];
+    const snapshotScore = orig.rrfScore;
+    const boosted = applyRankingBoost(input, DEFAULT_BOOST);
+    expect(orig.rrfScore).toBe(snapshotScore);
+    expect(boosted).not.toBe(input);
+    expect(boosted[0]).not.toBe(orig);
+  });
+
+  it("penalty unverified < 1 abbassa lo score rispetto a pari rrf", () => {
+    const input = [
+      r(1, 0.2, { confidenceLevel: "unverified" }), // 0.2 * 0.95 = 0.19
+      r(2, 0.195, { confidenceLevel: "generated" }), // 0.195 * 1 = 0.195
+    ];
+    const boosted = applyRankingBoost(input, DEFAULT_BOOST);
+    expect(boosted[0]!.guideId).toBe(2);
+    expect(boosted[1]!.guideId).toBe(1);
+  });
+
+  it("config override: source factor custom > default", () => {
+    const input = [
+      r(1, 0.1, { source: "wordpress" }),
+      r(2, 0.1, { source: "scraping" }),
+    ];
+    const boosted = applyRankingBoost(input, {
+      bySource: { wordpress: 1.0, scraping: 2.0 },
+      byConfidence: {},
+    });
+    expect(boosted[0]!.guideId).toBe(2);
+    expect(boosted[0]!.rrfScore).toBeCloseTo(0.2, 6);
   });
 });
