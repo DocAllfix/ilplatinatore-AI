@@ -1,0 +1,16 @@
+# Non auto-graphificare il nostro stesso output (vault Obsidian + report).
+graphify-out/
+
+# Log harvester: rumore, non sono documenti.
+*.log
+
+# Raw scraped HTML/JSON: input ai collector, non concetti di architettura.
+raw/
+
+# Dati di test/dev (migrazioni SQL sono gia' coperte, JSON seed non utili al grafo).
+harvester/.venv/
+harvester/data/
+harvester/logs/
+
+# Python env pointer usato da graphify stesso
+.graphify_python
