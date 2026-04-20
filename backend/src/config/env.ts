@@ -55,16 +55,10 @@ const envSchema = z.object({
 
   // ── Rate Limits ─────────────────────────────────────────────
   RATE_LIMIT_FREE_DAILY: z.coerce.number().int().positive().default(3),
-  RATE_LIMIT_FREE_REGISTERED_DAILY: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(5),
-  RATE_LIMIT_PRO_PER_MINUTE: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(10),
+  RATE_LIMIT_FREE_REGISTERED_DAILY: z.coerce.number().int().positive().default(5),
+  RATE_LIMIT_FREE_PER_MINUTE: z.coerce.number().int().positive().default(1),
+  RATE_LIMIT_REGISTERED_PER_MINUTE: z.coerce.number().int().positive().default(2),
+  RATE_LIMIT_PRO_PER_MINUTE: z.coerce.number().int().positive().default(10),
 });
 
 export type Env = z.infer<typeof envSchema>;
