@@ -4,10 +4,14 @@ import { gamesRouter } from "./games.routes.js";
 import { guidesRouter } from "./guides.routes.js";
 import { guideRouter } from "./guide.routes.js";
 import { ratingRouter } from "./rating.routes.js";
+import { authRouter } from "./auth.routes.js";
 
 export const rootRouter = Router();
 
 rootRouter.use("/health", healthRouter);
+// Auth Fase 18 — register/login/refresh/logout/me. Le route cookie-based NON
+// richiedono csrfProtection (exempted): il login stesso è l'emettitore del CSRF.
+rootRouter.use("/api/auth", authRouter);
 rootRouter.use("/api/games", gamesRouter);
 rootRouter.use("/api/guides", guidesRouter);
 // /api/guide (singolare) — orchestrator chat Fase 16, distinto dal CRUD /api/guides.

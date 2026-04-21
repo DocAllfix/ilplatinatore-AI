@@ -26,14 +26,13 @@ else
 end
 `;
 
-type AuthenticatedRequest = Request & {
-  user?: { id: string };
-  session?: { id: string };
-};
-
-function getIdentifier(req: AuthenticatedRequest): string {
-  if (req.user?.id) return `user:${req.user.id}`;
-  if (req.session?.id) return `session:${req.session.id}`;
+// Priorità identità per rate limit composite key (Fase 18 alignment):
+//   1. userId del JWT valido (Express.Request.user.userId, number)
+//   2. sessionId del cookie anonimo (Express.Request.sessionId, UUID string)
+//   3. IP come fallback (dietro trust proxy: X-Forwarded-For primo hop)
+function getIdentifier(req: Request): string {
+  if (req.user?.userId != null) return `user:${req.user.userId}`;
+  if (req.sessionId) return `session:${req.sessionId}`;
   return `ip:${req.ip ?? "unknown"}`;
 }
 
@@ -42,7 +41,7 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
   const windowLabel = Math.floor(windowMs / 1000);
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const identifier = getIdentifier(req as AuthenticatedRequest);
+    const identifier = getIdentifier(req);
     const key = `${keyPrefix}:${identifier}:${windowLabel}`;
     const now = Date.now();
 
