@@ -21,6 +21,8 @@ export interface TrophyMatch {
   trophy_type: string | null;
   name_en: string | null;
   name_it: string | null;
+  detail_en: string | null;
+  detail_it: string | null;
   psn_trophy_id: string | null;
   psn_communication_id: string | null;
   rarity_source: string | null;
@@ -33,9 +35,12 @@ export interface TrophyMatch {
 // Sotto 0.4 i match sono rumore (trofei non correlati); sopra 0.4 sono riconoscibili.
 const FUZZY_THRESHOLD = 0.4;
 
+// name_en/detail_en usati come anchor autoritativo EN nel prompt LLM (Fase 16.1).
+// detail_it tenuto per future post-translation substitution senza extra SELECT.
 const TROPHY_BASE_COLS = `
   id, game_id, trophy_type,
-  name_en, name_it, psn_trophy_id, psn_communication_id, rarity_source
+  name_en, name_it, detail_en, detail_it,
+  psn_trophy_id, psn_communication_id, rarity_source
 `;
 
 export const TrophyLookupService = {

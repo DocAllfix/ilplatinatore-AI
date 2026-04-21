@@ -28,6 +28,13 @@ export interface PsnAnchor {
   rarity_source: string | null;
 }
 
+export interface PsnOfficial {
+  /** Nome ufficiale Sony (EN canonico). Si assume NON-null quando il blocco è presente. */
+  officialName: string;
+  /** Descrizione ufficiale Sony (EN canonico). NULL se il fetcher PSN non l'ha popolata. */
+  officialDetail: string | null;
+}
+
 export interface PromptContext {
   /** Testo già assemblato da RAG (assembleContext) — vuoto se fallback scraping. */
   ragContext: string;
@@ -43,6 +50,12 @@ export interface PromptContext {
   language: string;
   /** Solo per guide_type='trophy' — metadati PSN per anchor anti-allucinazione. */
   psnAnchor?: PsnAnchor;
+  /**
+   * Solo per guide_type='trophy' — nome + descrizione ufficiali Sony (EN canonico).
+   * Iniettati come primo blocco del USER prompt per ridurre allucinazione su
+   * identità trofeo. Lingua EN perché il LLM risponde in EN + traduzione POST.
+   */
+  psnOfficial?: PsnOfficial;
   /** Query originale utente — preservata per contesto conversazionale. */
   userQuery: string;
 }
@@ -74,6 +87,18 @@ function formatPsnAnchor(a: PsnAnchor | undefined): string {
   return `\n\nIDENTIFICATIVI PSN UFFICIALI (riporta letteralmente nella risposta):\n- ${parts.join("\n- ")}`;
 }
 
+/**
+ * Blocco autoritativo Sony (nome + descrizione) prepended al USER prompt prima
+ * del CONTESTO. Emesso SOLO per guide_type='trophy' con psnOfficial presente.
+ * In EN canonico perché il LLM risponde in EN e traduciamo a valle.
+ */
+function formatPsnOfficial(o: PsnOfficial | undefined): string {
+  if (!o?.officialName) return "";
+  const lines = [`NOME UFFICIALE TROFEO (Sony): ${o.officialName}`];
+  if (o.officialDetail) lines.push(`DESCRIZIONE UFFICIALE: ${o.officialDetail}`);
+  return `${lines.join("\n")}\n\n`;
+}
+
 function assembleUserContext(ctx: PromptContext): string {
   const primary = ctx.ragContext.trim();
   const fallback = ctx.scrapingContext?.trim() ?? "";
@@ -86,6 +111,7 @@ function assembleUserContext(ctx: PromptContext): string {
 
 function buildTrophy(ctx: PromptContext): BuiltPrompt {
   const anchor = formatPsnAnchor(ctx.psnAnchor);
+  const official = formatPsnOfficial(ctx.psnOfficial);
   const system = `${SYSTEM_CORE}
 
 COMPITO: produci la guida per il trofeo "${ctx.targetName}" del gioco "${ctx.gameTitle}".
@@ -96,7 +122,7 @@ Struttura richiesta:
   1. ...
   ## Suggerimenti
   ## Fonti${anchor}`;
-  const user = `${assembleUserContext(ctx)}
+  const user = `${official}${assembleUserContext(ctx)}
 
 DOMANDA UTENTE: ${ctx.userQuery}`;
   return { system, user, templateId: "trophy" };

@@ -84,6 +84,45 @@ describe("buildPrompt — dispatcher guide_type", () => {
     expect(r.system).not.toContain("IDENTIFICATIVI PSN");
   });
 
+  it("include NOME UFFICIALE + DESCRIZIONE UFFICIALE (Fase 16.1) quando psnOfficial presente", () => {
+    const r = buildPrompt({
+      ...baseCtx,
+      psnOfficial: {
+        officialName: "Lord of Elden",
+        officialDetail: "Raise yourself to become Lord of Elden.",
+      },
+    });
+    expect(r.user).toContain("NOME UFFICIALE TROFEO (Sony): Lord of Elden");
+    expect(r.user).toContain("DESCRIZIONE UFFICIALE: Raise yourself to become Lord of Elden.");
+  });
+
+  it("il blocco NOME UFFICIALE precede il CONTESTO nel user prompt", () => {
+    const r = buildPrompt({
+      ...baseCtx,
+      psnOfficial: { officialName: "Lord of Elden", officialDetail: "desc" },
+    });
+    const idxOfficial = r.user.indexOf("NOME UFFICIALE");
+    const idxContext = r.user.indexOf("CONTESTO");
+    expect(idxOfficial).toBeGreaterThanOrEqual(0);
+    expect(idxContext).toBeGreaterThanOrEqual(0);
+    expect(idxOfficial).toBeLessThan(idxContext);
+  });
+
+  it("omette DESCRIZIONE UFFICIALE se detail è null (name_en sempre presente, detail_en no)", () => {
+    const r = buildPrompt({
+      ...baseCtx,
+      psnOfficial: { officialName: "Lord of Elden", officialDetail: null },
+    });
+    expect(r.user).toContain("NOME UFFICIALE TROFEO (Sony): Lord of Elden");
+    expect(r.user).not.toContain("DESCRIZIONE UFFICIALE");
+  });
+
+  it("non aggiunge il blocco NOME UFFICIALE se psnOfficial undefined", () => {
+    const r = buildPrompt(baseCtx);
+    expect(r.user).not.toContain("NOME UFFICIALE TROFEO");
+    expect(r.user).not.toContain("DESCRIZIONE UFFICIALE");
+  });
+
   it("user prompt preserva la DOMANDA UTENTE originale", () => {
     const r = buildPrompt({ ...baseCtx, userQuery: "come faccio il plat?" });
     expect(r.user).toContain("DOMANDA UTENTE: come faccio il plat?");

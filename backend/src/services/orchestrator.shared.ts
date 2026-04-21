@@ -71,6 +71,15 @@ export function buildPromptContext(
         rarity_source: norm.trophy.rarity_source,
       },
     }),
+    // psnOfficial emesso solo se name_en presente (migration 017:31 lo backfilla
+    // da `name` per ogni riga pre-esistente → ~sempre valorizzato).
+    // detail_en può essere null: il formatter emette solo la riga NOME in quel caso.
+    ...(norm.trophy?.name_en && {
+      psnOfficial: {
+        officialName: norm.trophy.name_en,
+        officialDetail: norm.trophy.detail_en,
+      },
+    }),
   };
 }
 
