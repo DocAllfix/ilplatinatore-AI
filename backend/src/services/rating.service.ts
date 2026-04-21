@@ -88,16 +88,22 @@ export const RatingService = {
   },
 
   async checkAndPromoteGuide(guideId: number): Promise<boolean> {
-    // ── Throttle REFRESH MATERIALIZED VIEW (60s per guideId) ─────────────
-    // Se il flag Redis esiste, saltiamo il REFRESH: leggiamo la view stale
-    // (al massimo di 60s). Accettabile per promozione: la prossima chiamata
-    // oltre la finestra rifà REFRESH e promuove se la soglia è raggiunta.
+    // ── Throttle REFRESH MATERIALIZED VIEW (max 1/min per guideId) ───────
+    // Lock atomico via SET NX EX: vince il primo thread, gli altri saltano
+    // il REFRESH anche sotto burst concorrente (single-replica o future N).
+    // Se il lock è già tenuto, la view può essere stale fino a 60s: il voto
+    // appena inserito sarà visibile al prossimo ciclo di REFRESH oltre finestra.
     const flagKey = `rating_refresh_last:${guideId}`;
     try {
-      const alreadyRefreshed = await redis.exists(flagKey);
-      if (alreadyRefreshed === 0) {
+      const locked = await redis.set(
+        flagKey,
+        "1",
+        "EX",
+        REFRESH_THROTTLE_SECONDS,
+        "NX",
+      );
+      if (locked === "OK") {
         await RatingsModel.refreshSummary();
-        await redis.set(flagKey, "1", "EX", REFRESH_THROTTLE_SECONDS);
       }
     } catch (err) {
       logger.warn(

@@ -63,8 +63,7 @@ function stubGuide(overrides: Partial<{ id: number; verified: boolean }> = {}): 
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Default: throttle NON impostato → refresh avviene.
-  mockedRedis.exists.mockResolvedValue(0);
+  // Default: SET NX EX acquisisce il lock → refresh avviene.
   mockedRedis.set.mockResolvedValue("OK");
   mockedRatings.refreshSummary.mockResolvedValue(undefined);
 });
@@ -206,20 +205,22 @@ describe("RatingService.checkAndPromoteGuide — soglie", () => {
   });
 });
 
-describe("RatingService.checkAndPromoteGuide — throttle Redis", () => {
-  it("salta refreshSummary se il flag è già impostato (<60s)", async () => {
-    mockedRedis.exists.mockResolvedValue(1);
+describe("RatingService.checkAndPromoteGuide — throttle Redis (lock atomico SET NX EX)", () => {
+  it("salta refreshSummary se SET NX non acquisisce il lock (<60s)", async () => {
+    // ioredis ritorna null quando NX fallisce perché la chiave esiste.
+    mockedRedis.set.mockResolvedValue(null);
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
     mockedRatings.getSummary.mockResolvedValue(null);
 
     await RatingService.checkAndPromoteGuide(42);
 
     expect(mockedRatings.refreshSummary).not.toHaveBeenCalled();
-    expect(mockedRedis.set).not.toHaveBeenCalled();
+    // SET viene comunque tentato (è il tentativo di acquisire il lock).
+    expect(mockedRedis.set).toHaveBeenCalledOnce();
   });
 
-  it("esegue refresh + imposta flag TTL 60s se non già impostato", async () => {
-    mockedRedis.exists.mockResolvedValue(0);
+  it("esegue refresh quando SET NX acquisisce il lock con TTL 60s", async () => {
+    mockedRedis.set.mockResolvedValue("OK");
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
     mockedRatings.getSummary.mockResolvedValue(null);
 
@@ -231,7 +232,24 @@ describe("RatingService.checkAndPromoteGuide — throttle Redis", () => {
       "1",
       "EX",
       60,
+      "NX",
     );
+  });
+
+  it("sotto burst concorrente, solo il primo thread esegue REFRESH", async () => {
+    // Simula 5 richieste simultanee: il primo SET NX vince ("OK"),
+    // gli altri 4 ricevono null → nessun REFRESH duplicato.
+    mockedRedis.set
+      .mockResolvedValueOnce("OK")
+      .mockResolvedValue(null);
+    mockedGuides.findById.mockResolvedValue(stubGuide() as never);
+    mockedRatings.getSummary.mockResolvedValue(null);
+
+    await Promise.all(
+      Array.from({ length: 5 }, () => RatingService.checkAndPromoteGuide(42)),
+    );
+
+    expect(mockedRatings.refreshSummary).toHaveBeenCalledOnce();
   });
 });
 
