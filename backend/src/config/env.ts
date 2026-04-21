@@ -53,6 +53,16 @@ const envSchema = z.object({
   RAG_MAX_RESULTS: z.coerce.number().int().positive().default(5),
   EMBEDDING_DIMENSION: z.coerce.number().int().positive().default(768),
 
+  // ── LLM Chat (Fase 16 — Gemini primario; DeepSeek deferral in memoria) ──
+  GEMINI_CHAT_MODEL: z.string().min(1).default("gemini-2.5-flash"),
+  GEMINI_CHAT_MODEL_FALLBACK: z.string().min(1).default("gemini-2.5-flash-lite"),
+  LLM_CHAT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
+  LLM_CHAT_TOP_P: z.coerce.number().min(0).max(1).default(0.9),
+  LLM_CHAT_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
+  LLM_CIRCUIT_ERROR_THRESHOLD: z.coerce.number().int().positive().default(3),
+  LLM_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(5 * 60 * 1000),
+  GUIDE_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24),
+
   // ── Rate Limits ─────────────────────────────────────────────
   RATE_LIMIT_FREE_DAILY: z.coerce.number().int().positive().default(3),
   RATE_LIMIT_FREE_REGISTERED_DAILY: z.coerce.number().int().positive().default(5),
