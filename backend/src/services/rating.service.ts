@@ -7,11 +7,17 @@ import { NotFoundError, ValidationError } from "@/utils/errors.js";
 /**
  * Fase 17 — Rating + promozione guide.
  *   submitRating        → upsert voto (user o session) + trigger promozione
- *   checkAndPromoteGuide → REFRESH throttled + UPDATE verified se soglia
- *   getGuideRatings     → lettura aggregata dalla materialized view
+ *   checkAndPromoteGuide → decisione su live stats + REFRESH view throttled
+ *   getGuideRatings     → lettura live da guide_ratings (no view stale)
  *
- * Throttle REFRESH: flag Redis `rating_refresh_last:{guideId}` TTL 60s, evita
- * REFRESH ad ogni voto quando gli utenti votano in raffica.
+ * Design (post-smoke-test):
+ *   Decisione promozione e GET pubblico leggono via RatingsModel.getLiveStats
+ *   (COUNT/AVG diretto con idx_ratings_guide, <1ms). La materialized view
+ *   `guide_rating_summary` + REFRESH throttled (SET NX EX 60s) restano per
+ *   consumer batch/dashboard futuri — idempotenti, costo trascurabile.
+ *
+ *   Throttle atomico via SET NX EX: il primo thread vince, gli altri skippano
+ *   il REFRESH anche sotto burst concorrente (verificato live con 5 paralleli).
  */
 
 const REFRESH_THROTTLE_SECONDS = 60;
@@ -112,10 +118,10 @@ export const RatingService = {
       );
     }
 
-    // ── Fetch summary + stato guida ──────────────────────────────────────
-    const summary = await RatingsModel.getSummary(guideId);
-    if (!summary) return false;
-
+    // ── Fetch live stats + stato guida ───────────────────────────────────
+    // getLiveStats: dati freschi dal table (no view stale), sempre ritorna
+    // una row (total_ratings=0 se nessun voto). Le soglie gestiscono il caso 0.
+    const summary = await RatingsModel.getLiveStats(guideId);
     const guide = await GuidesModel.findById(guideId);
     if (!guide) return false;
 
@@ -153,11 +159,13 @@ export const RatingService = {
     const guide = await GuidesModel.findById(guideId);
     if (!guide) throw new NotFoundError(`Guida ${guideId} non esiste`);
 
-    const summary = await RatingsModel.getSummary(guideId);
+    // Live stats: il client vede il proprio voto riflesso immediatamente
+    // (niente attesa della finestra di 60s del REFRESH).
+    const summary = await RatingsModel.getLiveStats(guideId);
     return {
-      avgStars: summary?.avg_stars ?? 0,
-      totalRatings: summary?.total_ratings ?? 0,
-      totalSuggestions: summary?.total_suggestions ?? 0,
+      avgStars: summary.avg_stars,
+      totalRatings: summary.total_ratings,
+      totalSuggestions: summary.total_suggestions,
     };
   },
 };

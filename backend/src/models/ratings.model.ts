@@ -147,4 +147,34 @@ export const RatingsModel = {
       throw err;
     }
   },
+
+  /**
+   * Aggregazione live direttamente da guide_ratings, bypassa la materialized view.
+   * Usata dall'hot path post-voto dove la view può essere stale di ≤60s per via
+   * del throttle SET NX del REFRESH. Complessità: O(log n + k) grazie a
+   * idx_ratings_guide (btree su guide_id), sotto ms per <100k voti/guida.
+   *
+   * Ritorna sempre una row (anche con total_ratings=0 se nessun voto), per
+   * semplificare il chiamante. La view resta utile per consumer batch/dashboard.
+   */
+  async getLiveStats(guideId: number): Promise<RatingSummary> {
+    try {
+      const res = await query<RatingSummary>(
+        `-- Aggregazione live su guide_ratings. Usa idx_ratings_guide per Index Scan.
+         -- COALESCE perché AVG di zero righe ritorna NULL.
+         SELECT
+           $1::int                                               AS guide_id,
+           COUNT(*)::int                                         AS total_ratings,
+           COALESCE(AVG(stars)::float, 0)                        AS avg_stars,
+           COUNT(*) FILTER (WHERE suggestion IS NOT NULL)::int   AS total_suggestions
+         FROM guide_ratings
+         WHERE guide_id = $1`,
+        [guideId],
+      );
+      return res.rows[0]!;
+    } catch (err) {
+      logger.error({ err, guideId }, "RatingsModel.getLiveStats failed");
+      throw err;
+    }
+  },
 };

@@ -18,6 +18,7 @@ vi.mock("@/models/ratings.model.js", () => ({
     createUserRating: vi.fn(),
     createSessionRating: vi.fn(),
     getSummary: vi.fn(),
+    getLiveStats: vi.fn(),
     refreshSummary: vi.fn(),
   },
 }));
@@ -66,6 +67,13 @@ beforeEach(() => {
   // Default: SET NX EX acquisisce il lock → refresh avviene.
   mockedRedis.set.mockResolvedValue("OK");
   mockedRatings.refreshSummary.mockResolvedValue(undefined);
+  // Default getLiveStats: 0 voti (no promozione). I singoli test overridano.
+  mockedRatings.getLiveStats.mockResolvedValue({
+    guide_id: 42,
+    total_ratings: 0,
+    avg_stars: 0,
+    total_suggestions: 0,
+  });
 });
 
 describe("RatingService.submitRating — validazione", () => {
@@ -101,7 +109,6 @@ describe("RatingService.submitRating — validazione", () => {
 describe("RatingService.submitRating — branch persistenza", () => {
   it("anonymous: invoca createSessionRating, non createUserRating", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue(null);
 
     await RatingService.submitRating({
       guideId: 42,
@@ -123,7 +130,6 @@ describe("RatingService.submitRating — branch persistenza", () => {
 
   it("autenticato: invoca createUserRating, non createSessionRating", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue(null);
 
     await RatingService.submitRating({
       guideId: 42,
@@ -136,10 +142,10 @@ describe("RatingService.submitRating — branch persistenza", () => {
   });
 });
 
-describe("RatingService.checkAndPromoteGuide — soglie", () => {
+describe("RatingService.checkAndPromoteGuide — soglie (via getLiveStats)", () => {
   it("promuove guida con avg≥3.5 e ratings≥3 quando non già verified", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide({ verified: false }) as never);
-    mockedRatings.getSummary.mockResolvedValue({
+    mockedRatings.getLiveStats.mockResolvedValue({
       guide_id: 42,
       avg_stars: 4.2,
       total_ratings: 5,
@@ -154,7 +160,7 @@ describe("RatingService.checkAndPromoteGuide — soglie", () => {
 
   it("NON promuove se la guida è già verified", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide({ verified: true }) as never);
-    mockedRatings.getSummary.mockResolvedValue({
+    mockedRatings.getLiveStats.mockResolvedValue({
       guide_id: 42,
       avg_stars: 4.8,
       total_ratings: 10,
@@ -169,7 +175,7 @@ describe("RatingService.checkAndPromoteGuide — soglie", () => {
 
   it("NON promuove sotto la soglia minima di ratings (<3)", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide({ verified: false }) as never);
-    mockedRatings.getSummary.mockResolvedValue({
+    mockedRatings.getLiveStats.mockResolvedValue({
       guide_id: 42,
       avg_stars: 5,
       total_ratings: 2,
@@ -184,7 +190,7 @@ describe("RatingService.checkAndPromoteGuide — soglie", () => {
 
   it("su low-rating (<2.5, ratings≥3) ritorna false senza toccare markAsVerified", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide({ verified: false }) as never);
-    mockedRatings.getSummary.mockResolvedValue({
+    mockedRatings.getLiveStats.mockResolvedValue({
       guide_id: 42,
       avg_stars: 1.8,
       total_ratings: 4,
@@ -197,9 +203,18 @@ describe("RatingService.checkAndPromoteGuide — soglie", () => {
     expect(mockedGuides.markAsVerified).not.toHaveBeenCalled();
   });
 
-  it("ritorna false quando la summary è null (nessun voto ancora aggregato)", async () => {
-    mockedRatings.getSummary.mockResolvedValue(null);
+  it("ritorna false quando nessun voto è presente (total_ratings=0)", async () => {
+    // Default beforeEach già imposta getLiveStats a zero, ma esplicito qui.
+    mockedGuides.findById.mockResolvedValue(stubGuide() as never);
+    mockedRatings.getLiveStats.mockResolvedValue({
+      guide_id: 42,
+      avg_stars: 0,
+      total_ratings: 0,
+      total_suggestions: 0,
+    });
+
     const promoted = await RatingService.checkAndPromoteGuide(42);
+
     expect(promoted).toBe(false);
     expect(mockedGuides.markAsVerified).not.toHaveBeenCalled();
   });
@@ -210,7 +225,7 @@ describe("RatingService.checkAndPromoteGuide — throttle Redis (lock atomico SE
     // ioredis ritorna null quando NX fallisce perché la chiave esiste.
     mockedRedis.set.mockResolvedValue(null);
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue(null);
+    // getLiveStats default a zero (beforeEach); throttle test non dipende dalle soglie.
 
     await RatingService.checkAndPromoteGuide(42);
 
@@ -222,7 +237,7 @@ describe("RatingService.checkAndPromoteGuide — throttle Redis (lock atomico SE
   it("esegue refresh quando SET NX acquisisce il lock con TTL 60s", async () => {
     mockedRedis.set.mockResolvedValue("OK");
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue(null);
+    // getLiveStats default a zero (beforeEach); throttle test non dipende dalle soglie.
 
     await RatingService.checkAndPromoteGuide(42);
 
@@ -243,7 +258,7 @@ describe("RatingService.checkAndPromoteGuide — throttle Redis (lock atomico SE
       .mockResolvedValueOnce("OK")
       .mockResolvedValue(null);
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue(null);
+    // getLiveStats default a zero (beforeEach); throttle test non dipende dalle soglie.
 
     await Promise.all(
       Array.from({ length: 5 }, () => RatingService.checkAndPromoteGuide(42)),
@@ -253,10 +268,10 @@ describe("RatingService.checkAndPromoteGuide — throttle Redis (lock atomico SE
   });
 });
 
-describe("RatingService.getGuideRatings", () => {
-  it("ritorna zeri quando non esistono ancora voti", async () => {
+describe("RatingService.getGuideRatings (live, no view stale)", () => {
+  it("ritorna zeri quando non esistono ancora voti (getLiveStats default)", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue(null);
+    // Default beforeEach: getLiveStats ritorna zero → zero output.
 
     const summary = await RatingService.getGuideRatings(42);
     expect(summary).toEqual({ avgStars: 0, totalRatings: 0, totalSuggestions: 0 });
@@ -267,9 +282,9 @@ describe("RatingService.getGuideRatings", () => {
     await expect(RatingService.getGuideRatings(999)).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it("proietta i campi dalla view in camelCase", async () => {
+  it("proietta i campi live in camelCase", async () => {
     mockedGuides.findById.mockResolvedValue(stubGuide() as never);
-    mockedRatings.getSummary.mockResolvedValue({
+    mockedRatings.getLiveStats.mockResolvedValue({
       guide_id: 42,
       avg_stars: 4.25,
       total_ratings: 8,
