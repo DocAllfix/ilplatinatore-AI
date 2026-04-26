@@ -6,8 +6,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   test: {
+    // Setup file globale: mocka ioredis con ioredis-mock quando un test
+    // non mocka esplicitamente @/config/redis.js (evita connessioni reali).
+    setupFiles: ["./tests/setup.ts"],
+
     // Env di test: valori placeholder sufficienti a passare il validator zod in env.ts.
-    // I test chunkText sono puri e non chiamano Gemini/DB/Redis realmente.
+    // I test sono tutti unit (no Postgres/Redis running, no Internet).
     env: {
       DATABASE_URL: "postgresql://test:test@localhost:6432/test",
       POSTGRES_DIRECT_URL: "postgresql://test:test@localhost:5432/test",
@@ -28,6 +32,33 @@ export default defineConfig({
       STRIPE_PRICE_PRO: "test",
       STRIPE_PRICE_PLATINUM: "test",
       CORS_ORIGINS: "http://localhost:3000",
+    },
+
+    // REGOLA: "Nessun test deve durare più di 5 secondi."
+    testTimeout: 5000,
+    hookTimeout: 5000,
+
+    // Coverage v8: baseline 15% (realistico con le sole suite attuali).
+    // Obiettivo 60% documentato in project-status Fase 22.
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.ts"],
+      exclude: [
+        "src/**/*.d.ts",
+        "src/**/*.test.ts",
+        "src/index.ts",
+        "src/config/**",
+        "src/types/**",
+        "src/migrations/**",
+        "src/scripts/**",
+      ],
+      thresholds: {
+        lines: 15,
+        functions: 15,
+        branches: 12,
+        statements: 15,
+      },
     },
   },
   resolve: {
