@@ -10,6 +10,10 @@ export default defineConfig({
     // non mocka esplicitamente @/config/redis.js (evita connessioni reali).
     setupFiles: ["./tests/setup.ts"],
 
+    // Esclude i test di integrazione (richiedono Docker running).
+    // Eseguire con: npm run test:integration
+    exclude: ["tests/integration/**", "node_modules/**"],
+
     // Env di test: valori placeholder sufficienti a passare il validator zod in env.ts.
     // I test sono tutti unit (no Postgres/Redis running, no Internet).
     env: {
