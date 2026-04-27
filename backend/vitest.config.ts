@@ -42,8 +42,8 @@ export default defineConfig({
     testTimeout: 5000,
     hookTimeout: 5000,
 
-    // Coverage v8: baseline 15% (realistico con le sole suite attuali).
-    // Obiettivo 60% documentato in project-status Fase 22.
+    // Coverage v8: baseline aggiornato dopo Fase 22 (auth + llm + cache + normalizer).
+    // services lines: 61.17% · global lines: 37.29%
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
@@ -58,10 +58,10 @@ export default defineConfig({
         "src/scripts/**",
       ],
       thresholds: {
-        lines: 15,
-        functions: 15,
-        branches: 12,
-        statements: 15,
+        lines: 35,
+        functions: 50,
+        branches: 85,
+        statements: 35,
       },
     },
   },
