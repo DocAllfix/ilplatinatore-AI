@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "@/utils/asyncHandler.js";
 import { validate } from "@/middleware/validate.js";
 import { optionalAuth } from "@/middleware/auth.middleware.js";
+import { tierRateLimiter } from "@/middleware/rateLimiter.js";
 import {
   handleGuideRequest,
   handleGuideStream,
@@ -11,6 +12,10 @@ import {
 import { logger } from "@/utils/logger.js";
 
 export const guideRouter = Router();
+
+// T2.6 — Tier-aware rate limit sull'hot-path /api/guide.
+// free=5/min, registered=10/min, pro=30/min, platinum=∞.
+const guideTierLimiter = tierRateLimiter();
 
 // NOTA: singolare /api/guide — distinto da /api/guides (CRUD su tabella guides).
 //  - POST /api/guide         → risposta JSON completa (non-streaming)
@@ -36,6 +41,7 @@ const guideStreamQuerySchema = z.object({
 guideRouter.post(
   "/",
   optionalAuth,
+  guideTierLimiter,
   validate(guideRequestSchema, "body"),
   asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as z.infer<typeof guideRequestSchema>;
@@ -62,6 +68,7 @@ guideRouter.post(
 guideRouter.get(
   "/stream",
   optionalAuth,
+  guideTierLimiter,
   validate(guideStreamQuerySchema, "query"),
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as unknown as z.infer<typeof guideStreamQuerySchema>;

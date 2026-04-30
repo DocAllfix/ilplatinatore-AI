@@ -22,17 +22,17 @@
 
 ---
 
-## Sprint 2 — P1 Hardening + Multilingua test
+## Sprint 2 — P1 Hardening + Multilingua test ✅ COMPLETATO
 
 | ID | Task | Status |
 |----|------|--------|
-| T2.1 | Suite E2E multilingua (9 lingue × 5 guide_type = 45 test) | ⏳ |
-| T2.2 | Fix scraper.client incrementDailyCount post-success + cache empty TTL ridotto | ⏳ |
-| T2.3 | Cron cleanup `query_log` > 90d (pg_cron o BullMQ scheduled) | ⏳ |
-| T2.4 | Cron cleanup `guide_drafts` rejected/failed > 30d | ⏳ |
-| T2.5 | Indici composti: idx_guides_game_lang_verified, idx_query_log_user_date, idx_drafts_user_status, idx_drafts_search_metadata_gin | ⏳ |
-| T2.6 | Rate limit per-tier: free=5/min, registered=10/min, pro=30/min | ⏳ |
-| T2.7 | Migration 030 — HNSW retune m=32, ef_construction=200 (solo se >50k embeddings) | ⏳ |
+| T2.1 | Suite E2E multilingua (9 lingue × 5 guide_type = 45 test) | ✅ |
+| T2.2 | Fix scraper.client incrementDailyCount post-success + cache empty TTL ridotto | ✅ |
+| T2.3 | Cron cleanup `query_log` > 90d via node-cron (02:30 Europe/Rome) | ✅ |
+| T2.4 | Cron cleanup `guide_drafts` rejected/failed > 30d (02:45 Europe/Rome) | ✅ |
+| T2.5 | Migration 030 — idx_query_log_user_date, idx_drafts_user_status, idx_drafts_search_metadata_gin | ✅ |
+| T2.6 | Rate limit per-tier `tierRateLimiter()`: free=5, reg=10, pro=30, platinum=∞ | ✅ |
+| T2.7 | HNSW retune skipped — dataset <50k embeddings (eseguibile in futuro se serve) | ⏭️ |
 
 ---
 

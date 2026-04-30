@@ -11,6 +11,7 @@ import { errorHandler } from "@/middleware/errorHandler.js";
 import { rootRouter } from "@/routes/index.js";
 import { startEmbeddingWorker } from "@/workers/embedding.worker.js";
 import { startEmbeddingScheduler } from "@/schedulers/embedding.scheduler.js";
+import { startCleanupScheduler } from "@/schedulers/cleanup.scheduler.js";
 
 const app = express();
 
@@ -65,3 +66,5 @@ app.listen(env.PORT, () => {
 // ── Background workers & scheduler (stesso processo, 1 replica — regola #11 CLAUDE.md)
 startEmbeddingWorker();
 startEmbeddingScheduler();
+// T2.3 + T2.4 — cleanup retention policies (query_log 90d, drafts terminali 30d).
+startCleanupScheduler();

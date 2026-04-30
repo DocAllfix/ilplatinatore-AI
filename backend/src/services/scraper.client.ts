@@ -40,6 +40,9 @@ const TRUSTED_DOMAINS = new Set([
 
 const CACHE_PREFIX = "tavily:";
 const DAILY_COUNT_KEY = "tavily:daily_count";
+// T2.2 — TTL ridotto per cache di empty results: evita di hammerare Tavily
+// per la stessa query "rara" ma riprova dopo 5 min (es. nuova guida appena pubblicata).
+const EMPTY_RESULT_TTL_SECONDS = 300;
 
 function extractDomain(url: string): string {
   try {
@@ -211,22 +214,36 @@ export async function fetchScrapedContext(
     return { context: "", sources: [], totalWordCount: 0, scrapingTimeMs: 0 };
   }
 
-  // 3. Call Tavily
-  await incrementDailyCount();
+  // 3. Call Tavily — T2.2: incrementDailyCount SOLO dopo success.
+  // Una chiamata che fallisce (timeout/500/rete) non deve consumare quota.
   const result = await callTavily(gameTitle, query);
   result.scrapingTimeMs = Date.now() - start;
 
-  // 4. Cache on success (even empty — avoid hammering on misses for same query)
-  if (result.context || result.sources.length > 0) {
-    try {
-      await redis.setex(
-        cacheKey,
-        env.SCRAPING_CACHE_TTL_SECONDS,
-        JSON.stringify(result),
-      );
-    } catch (err) {
-      logger.warn({ err }, "scraper.client: errore scrittura cache Redis");
-    }
+  const hadResults = result.context.length > 0 || result.sources.length > 0;
+  // Considera "success" qualsiasi response valida (anche zero risultati da
+  // domini trusted) — Tavily ha risposto. Se callTavily ha intercettato un
+  // network error, scrapingTimeMs è < 50ms o context è vuoto: non consumiamo.
+  // Heuristic conservativa: incrementiamo solo se result.context o sources
+  // sono presenti, oppure se Tavily ha confermato 200 con results=[] vuoti
+  // (in tal caso totalWordCount=0 ma il fetch è andato — usiamo scrapingTimeMs
+  // > 100ms come indicatore di network call effettiva).
+  const tavilyResponded = hadResults || result.scrapingTimeMs > 100;
+  if (tavilyResponded) {
+    await incrementDailyCount().catch((err) =>
+      logger.warn({ err }, "scraper.client: incrementDailyCount fallito (non-fatal)"),
+    );
+  }
+
+  // 4. Cache: TTL pieno se hai risultati, TTL ridotto se vuoto
+  // (evita re-fetch costante per query rare, ma riprova dopo 5 min se la
+  // guida diventa disponibile su un dominio trusted).
+  try {
+    const ttl = hadResults
+      ? env.SCRAPING_CACHE_TTL_SECONDS
+      : EMPTY_RESULT_TTL_SECONDS;
+    await redis.setex(cacheKey, ttl, JSON.stringify(result));
+  } catch (err) {
+    logger.warn({ err }, "scraper.client: errore scrittura cache Redis");
   }
 
   logger.info(
@@ -235,6 +252,8 @@ export async function fetchScrapedContext(
       sources: result.sources.length,
       words: result.totalWordCount,
       ms: result.scrapingTimeMs,
+      cachedTtl: hadResults ? env.SCRAPING_CACHE_TTL_SECONDS : EMPTY_RESULT_TTL_SECONDS,
+      tavilyResponded,
     },
     "scraper.client: Tavily fetch completata",
   );

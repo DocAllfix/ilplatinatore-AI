@@ -79,3 +79,108 @@ export function createRateLimiter(options: RateLimiterOptions): RequestHandler {
     }
   };
 }
+
+// ── T2.6 — Rate limit per-tier (free / registered / pro / platinum) ────────
+// Frontend hot-path: /api/guide. La free tier è la più ristretta per evitare
+// abuso anonymous; la platinum è ∞ (passa always-allowed). Il tier è letto da
+// req.user.tier (popolato da requireAuth/optionalAuth) — se undefined ricade
+// su 'free' (anonymous).
+
+export interface TierLimits {
+  /** Sub anonymous o tier non riconosciuto. */
+  free: { windowMs: number; limit: number };
+  registered: { windowMs: number; limit: number };
+  pro: { windowMs: number; limit: number };
+  /** platinum = bypass (no rate limit). */
+  platinum: null;
+}
+
+const DEFAULT_TIER_LIMITS: TierLimits = {
+  free:       { windowMs: 60_000, limit: 5 },
+  registered: { windowMs: 60_000, limit: 10 },
+  pro:        { windowMs: 60_000, limit: 30 },
+  platinum:   null,
+};
+
+type TierName = "free" | "registered" | "pro" | "platinum";
+
+function resolveTier(req: Request): TierName {
+  // req.user.tier tipato come "free" | "pro" | "platinum" (vedi UserRow).
+  // 'registered' è dedotto: utente loggato in tier='free' ma con userId noto.
+  const u = req.user;
+  if (!u || u.userId == null) return "free";
+  const t = u.tier;
+  if (t === "platinum") return "platinum";
+  if (t === "pro") return "pro";
+  // tier='free' MA con userId presente → 'registered' (limit più alto del puro
+  // anonymous senza account). Coerente con la regola: "registered=10 vs free=5".
+  return "registered";
+}
+
+/**
+ * Rate limiter dinamico in base al req.user.tier. Da usare DOPO optionalAuth/
+ * requireAuth perché ha bisogno di req.user.
+ *
+ * Esempio:
+ *   router.post("/guide", optionalAuth, tierRateLimiter(), handler);
+ */
+export function tierRateLimiter(
+  limits: TierLimits = DEFAULT_TIER_LIMITS,
+  keyPrefix = "rl:tier",
+): RequestHandler {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const tier = resolveTier(req);
+    const cfg = limits[tier];
+
+    // platinum = bypass totale.
+    if (cfg === null) {
+      res.setHeader("X-RateLimit-Tier", tier);
+      next();
+      return;
+    }
+
+    const { windowMs, limit } = cfg;
+    const windowLabel = Math.floor(windowMs / 1000);
+    const identifier = getIdentifier(req);
+    const key = `${keyPrefix}:${tier}:${identifier}:${windowLabel}`;
+    const now = Date.now();
+
+    try {
+      const result = (await redis.eval(
+        SLIDING_WINDOW_SCRIPT,
+        1,
+        key,
+        now.toString(),
+        windowMs.toString(),
+        limit.toString(),
+      )) as [number, number];
+
+      const [allowed, remaining] = result;
+
+      res.setHeader("X-RateLimit-Tier", tier);
+      res.setHeader("X-RateLimit-Limit", limit);
+      res.setHeader("X-RateLimit-Remaining", Math.max(0, remaining));
+      res.setHeader("X-RateLimit-Window-Ms", windowMs);
+
+      if (!allowed) {
+        const retryAfterS = Math.ceil(windowMs / 1000);
+        res.setHeader("Retry-After", retryAfterS);
+        res.status(429).json({
+          error: "Too many requests",
+          tier,
+          retryAfterSeconds: retryAfterS,
+        });
+        return;
+      }
+
+      next();
+    } catch (err) {
+      // Fail open
+      logger.warn(
+        { key, tier, error: String(err) },
+        "tierRateLimiter Redis error — failing open",
+      );
+      next();
+    }
+  };
+}
