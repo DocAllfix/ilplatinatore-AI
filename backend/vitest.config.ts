@@ -25,6 +25,7 @@ export default defineConfig({
       REDIS_URL: "redis://localhost:6379",
       GEMINI_API_KEY: "test",
       GOOGLE_EMBEDDING_API_KEY: "test",
+      TAVILY_API_KEY: "test",
       WP_API_URL: "https://test.local/wp-json",
       WP_APP_PASSWORD: "test",
       WP_WEBHOOK_SECRET: "test",

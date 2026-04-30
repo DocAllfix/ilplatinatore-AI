@@ -22,6 +22,8 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().min(1),
   GOOGLE_EMBEDDING_API_KEY: z.string().min(1),
   SERPAPI_KEY: z.string().default(""),
+  // Tavily Search API — web fallback per scraping (Fase 23)
+  TAVILY_API_KEY: z.string().default(""),
 
   // ── WordPress ───────────────────────────────────────────────
   WP_API_URL: z.string().url(),
@@ -62,6 +64,16 @@ const envSchema = z.object({
   LLM_CIRCUIT_ERROR_THRESHOLD: z.coerce.number().int().positive().default(3),
   LLM_CIRCUIT_OPEN_MS: z.coerce.number().int().positive().default(5 * 60 * 1000),
   GUIDE_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60 * 24),
+
+  // ── Scraping / Tavily ───────────────────────────────────────
+  // TTL cache Redis per risposte Tavily (default 1h)
+  SCRAPING_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+  // Limite giornaliero chiamate Tavily (default 500 req/giorno free tier)
+  SCRAPING_MAX_DAILY_REQUESTS: z.coerce.number().int().positive().default(500),
+
+  // ── Guide Drafts ─────────────────────────────────────────────
+  // TTL Redis per stato conversazione bozze (default 30 min)
+  DRAFT_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
 
   // ── Rate Limits ─────────────────────────────────────────────
   RATE_LIMIT_FREE_DAILY: z.coerce.number().int().positive().default(3),
