@@ -116,9 +116,28 @@ async function getThresholds(): Promise<Thresholds> {
   }
 }
 
+// Mappa ISO-639-1 → regconfig PostgreSQL. Speculare al trigger SQL in
+// migration 029 — se aggiungi una lingua, aggiorna entrambi.
+function langToTsConfig(lang: string | undefined): string {
+  switch (lang) {
+    case "it": return "italian";
+    case "en": return "english";
+    case "es": return "spanish";
+    case "fr": return "french";
+    case "de": return "german";
+    case "pt": return "portuguese";
+    case "ru": return "russian";
+    default:   return "simple"; // ja, zh, e ogni altra lingua
+  }
+}
+
+// T1.7 — statement_timeout 5s scoped alla transazione (PgBouncer-safe).
+const STATEMENT_TIMEOUT = "5s";
+
 async function runVectorSearch(
   queryEmbedding: number[],
   gameId: number | undefined,
+  language: string | undefined,
   thresholdLow: number,
 ): Promise<VectorHit[]> {
   const client = await getClient();
@@ -127,20 +146,26 @@ async function runVectorSearch(
     // AUDIT FIX (W2): ef_search=200 per recall >98% sul retrieval RAG critico.
     // SET LOCAL è scoped alla transazione → safe con PgBouncer transaction pooling.
     await client.query("SET LOCAL hnsw.ef_search = 200");
+    await client.query(`SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT}'`);
     const vectorStr = `[${queryEmbedding.join(",")}]`;
+    // T1.2 — filtro per language su guide_embeddings (denormalizzato) +
+    // su guides (per coerenza). Un embedding multilingua matcherebbe semanti-
+    // camente cross-language, ma vogliamo coerenza linguistica nel RAG.
     const res = await client.query<VectorHit>(
       `-- Top-N chunk per similarità coseno via indice HNSW su guide_embeddings.
        -- 1 - (a <=> b) = cosine similarity in [0,1]; filtro soglia low per scartare rumore.
+       -- Filtro language: ge.language usato per filtro selettivo PRIMA dell'HNSW.
        SELECT ge.guide_id, ge.chunk_text, ge.chunk_index,
               g.title, g.slug, g.language, g.quality_score, g.verified, g.guide_type,
               1 - (ge.embedding <=> $1::vector) AS vector_score
        FROM guide_embeddings ge
        JOIN guides g ON g.id = ge.guide_id
        WHERE ($2::int IS NULL OR g.game_id = $2)
-         AND 1 - (ge.embedding <=> $1::vector) > $3
+         AND ($3::text IS NULL OR ge.language = $3)
+         AND 1 - (ge.embedding <=> $1::vector) > $4
        ORDER BY vector_score DESC
-       LIMIT $4`,
-      [vectorStr, gameId ?? null, thresholdLow, VECTOR_SEARCH_LIMIT],
+       LIMIT $5`,
+      [vectorStr, gameId ?? null, language ?? null, thresholdLow, VECTOR_SEARCH_LIMIT],
     );
     await client.query("COMMIT");
     return res.rows;
@@ -156,29 +181,38 @@ async function runVectorSearch(
 async function runFtsSearch(
   queryText: string,
   gameId: number | undefined,
+  language: string | undefined,
 ): Promise<FtsHit[]> {
   try {
     const client = await getClient();
     try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL statement_timeout = '${STATEMENT_TIMEOUT}'`);
+      // T1.3 — FTS multilingua: usa g.ts_config (per riga) per parsare la query
+      // con lo stesso config con cui è stato generato il search_vector.
+      // Fallback a 'simple' (no stemming) se language non riconosciuto.
       const res = await client.query<FtsHit>(
-        `-- FTS su search_vector (GENERATED, stemming italiano).
+        `-- FTS su search_vector (popolato da trigger con ts_config per riga).
          -- plainto_tsquery normalizza l'input senza rischi di sintassi ts_query.
+         -- Usa g.ts_config per ogni riga: matcha guide IT con query IT, EN con EN, ecc.
          SELECT g.id AS guide_id, g.title, g.slug, g.content,
                 g.language, g.quality_score, g.verified, g.guide_type,
-                ts_rank_cd(g.search_vector, plainto_tsquery('italian', $1)) AS fts_score
+                ts_rank_cd(g.search_vector, plainto_tsquery(g.ts_config, $1)) AS fts_score
          FROM guides g
-         WHERE g.search_vector @@ plainto_tsquery('italian', $1)
+         WHERE g.search_vector @@ plainto_tsquery(g.ts_config, $1)
            AND ($2::int IS NULL OR g.game_id = $2)
+           AND ($3::text IS NULL OR g.language = $3)
          ORDER BY fts_score DESC
-         LIMIT $3`,
-        [queryText, gameId ?? null, FTS_SEARCH_LIMIT],
+         LIMIT $4`,
+        [queryText, gameId ?? null, language ?? null, FTS_SEARCH_LIMIT],
       );
+      await client.query("COMMIT");
       return res.rows;
     } finally {
       client.release();
     }
   } catch (err) {
-    logger.error({ err }, "RagService: FTS fallita, procedo col solo vector ranking");
+    logger.error({ err, tsConfig: langToTsConfig(language) }, "RagService: FTS fallita");
     return [];
   }
 }
@@ -245,13 +279,13 @@ export const RagService = {
     // STEP B — vector search con SET LOCAL hnsw.ef_search=200 (eseguita solo se embed OK).
     const vStart = performance.now();
     const vectorHits: VectorHit[] = queryEmbedding !== null
-      ? await runVectorSearch(queryEmbedding, gameId, thresholds.low)
+      ? await runVectorSearch(queryEmbedding, gameId, language, thresholds.low)
       : [];
     const vectorMs = Math.round(performance.now() - vStart);
 
     // STEP C — FTS (sempre eseguita, indipendente dal vector).
     const fStart = performance.now();
-    const ftsHits = await runFtsSearch(queryText, gameId);
+    const ftsHits = await runFtsSearch(queryText, gameId, language);
     const ftsMs = Math.round(performance.now() - fStart);
 
     // STEP D — Reciprocal Rank Fusion + ordinamento + top-N.

@@ -26,9 +26,44 @@ describe("buildPrompt — dispatcher guide_type", () => {
     expect(r.system).toContain("Caccia concluso");
   });
 
-  it("propaga la lingua richiesta nel system prompt", () => {
+  it("propaga la lingua richiesta nel system prompt come 'Output language: X' (T1.4)", () => {
     const r = buildPrompt({ ...baseCtx, language: "en" });
-    expect(r.system).toContain("Rispondi in lingua: en");
+    expect(r.system).toContain("Output language: English");
+    const it = buildPrompt({ ...baseCtx, language: "it" });
+    expect(it.system).toContain("Lingua di output: Italian");
+    const ja = buildPrompt({ ...baseCtx, language: "ja" });
+    expect(ja.system).toContain("Japanese");
+  });
+
+  it("usa header NATIVI nella lingua target (no traduzione a valle)", () => {
+    const en = buildPrompt({ ...baseCtx, language: "en" });
+    expect(en.system).toContain("## Requirements");
+    expect(en.system).toContain("## Steps");
+    expect(en.system).toContain("## Tips");
+    expect(en.system).toContain("## Sources");
+
+    const it = buildPrompt({ ...baseCtx, language: "it" });
+    expect(it.system).toContain("## Requisiti");
+    expect(it.system).toContain("## Passaggi");
+    expect(it.system).toContain("## Suggerimenti");
+    expect(it.system).toContain("## Fonti");
+
+    const ja = buildPrompt({ ...baseCtx, language: "ja" });
+    expect(ja.system).toContain("## 要件");
+    expect(ja.system).toContain("## 手順");
+    expect(ja.system).toContain("## ヒント");
+    expect(ja.system).toContain("## 出典");
+
+    const de = buildPrompt({ ...baseCtx, language: "de" });
+    expect(de.system).toContain("## Voraussetzungen");
+    expect(de.system).toContain("## Schritte");
+  });
+
+  it("fallback EN per lingue non whitelisted", () => {
+    // 'ar' non è in HEADERS_I18N → ricade su LABELS_EN
+    const r = buildPrompt({ ...baseCtx, language: "ar" });
+    expect(r.system).toContain("## Requirements");
+    expect(r.system).toContain("Output language: English");
   });
 
   it("lancia per guide_type non supportato (5 fissi da migration 004)", () => {

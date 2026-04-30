@@ -33,6 +33,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "franc-min": "^6.2.0",
     "helmet": "^8.0.0",
     "ioredis": "^5.4.2",
     "jsonwebtoken": "^9.0.3",

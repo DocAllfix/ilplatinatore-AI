@@ -1,14 +1,13 @@
 import { logger } from "@/utils/logger.js";
 import { normalizeQuery, type NormalizedQuery } from "@/services/query.normalizer.js";
 import { GuideCache, type CachedGuide } from "@/services/guide.cache.js";
-import { generateGuide, translateGuide } from "@/services/llm.service.js";
+import { generateGuide } from "@/services/llm.service.js";
 import {
   retrieveContext,
   enrichWithScraping,
   type RetrievalBundle,
 } from "@/services/orchestrator.retrieval.js";
 import {
-  DB_CANONICAL_LANGUAGE,
   buildCacheKeyParams,
   buildPromptContext,
   logAndTrack,
@@ -108,16 +107,10 @@ export async function handleGuideRequest(
       "Riprova tra qualche minuto. Se il problema persiste, segnala l'errore.";
   }
 
-  // STEP 6 — translate se lingua utente ≠ EN
-  let finalContent = llmContent;
-  if (norm.language !== DB_CANONICAL_LANGUAGE && llmContent) {
-    try {
-      finalContent = await translateGuide(llmContent, DB_CANONICAL_LANGUAGE, norm.language);
-    } catch (err) {
-      logger.warn({ err }, "orchestrator STEP 6 (translate): fallback testo originale");
-      finalContent = llmContent;
-    }
-  }
+  // STEP 6 — translate skippato (T1.4): il prompt builder ora genera native-lang.
+  // translateGuide resta disponibile in llm.service per emergency fallback ma
+  // non viene più chiamato nel flow normale.
+  const finalContent = llmContent;
 
   // STEP 7 — cache + log + tracker (tutti non-fatal)
   const payload: CachedGuide = {

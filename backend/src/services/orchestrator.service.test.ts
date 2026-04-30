@@ -257,7 +257,7 @@ describe("handleGuideRequest — Test 4: full pipeline no-cache", () => {
     expect(mockedTranslate).not.toHaveBeenCalled();
   });
 
-  it("invoca translateGuide quando language !== en", async () => {
+  it("T1.4 i18n native: NON invoca translateGuide (output LLM già in lingua)", async () => {
     mockedNormalize.mockResolvedValue(
       stubNorm({
         language: "it",
@@ -265,14 +265,23 @@ describe("handleGuideRequest — Test 4: full pipeline no-cache", () => {
       }),
     );
     mockedRetrieve.mockResolvedValue(bundleRag("rag"));
-    mockedTranslate.mockResolvedValue("Guida passo-passo per il boss...");
+    // Il content del LLM è già in lingua (prompt builder genera native templates)
+    mockedGenerate.mockResolvedValue({
+      content: "Guida passo-passo per il boss...",
+      templateId: "walkthrough",
+      model: "gemini-2.5-flash",
+      finishReason: "STOP",
+      elapsedMs: 100,
+    });
 
     const res = await handleGuideRequest({
       query: "come battere il boss",
       language: "it",
     });
 
-    expect(mockedTranslate).toHaveBeenCalledOnce();
+    // translateGuide NON deve essere chiamato (T1.4): il prompt builder genera
+    // direttamente nella lingua target, no traduzione a valle.
+    expect(mockedTranslate).not.toHaveBeenCalled();
     expect(res.content).toBe("Guida passo-passo per il boss...");
     expect(res.meta.language).toBe("it");
   });

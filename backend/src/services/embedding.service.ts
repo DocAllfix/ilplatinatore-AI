@@ -5,7 +5,7 @@ import { getClient } from "@/config/database.js";
 import { redis } from "@/config/redis.js";
 import { logger } from "@/utils/logger.js";
 import { GuidesModel } from "@/models/guides.model.js";
-import { EmbeddingsModel, type EmbeddingInsert } from "@/models/embeddings.model.js";
+import { EmbeddingsModel, chunkHash, type EmbeddingInsert } from "@/models/embeddings.model.js";
 
 const CHARS_PER_TOKEN = 4;
 const MAX_INPUT_TOKENS = 2000;
@@ -13,8 +13,12 @@ const MAX_INPUT_CHARS = MAX_INPUT_TOKENS * CHARS_PER_TOKEN;
 const MIN_GUIDE_CHARS = 50;
 const CACHE_TTL_SECONDS = 86_400; // 24h
 
+// T1.6 — modello esposto come costante per idempotency (chunk_hash + model uniq).
+// Migrazione futura a text-embedding-005 = nuova costante + nuovi embedding paralleli.
+const EMBEDDING_MODEL = "text-embedding-004";
+
 const genAI = new GoogleGenerativeAI(env.GOOGLE_EMBEDDING_API_KEY);
-const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+const embedModel = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
 
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
@@ -125,8 +129,13 @@ export const EmbeddingService = {
 
   /**
    * Genera gli embedding per una guida e li salva in guide_embeddings.
-   * Transazione: delete+insert+update flag sono atomici.
-   * Throw su errore API → BullMQ retenta con backoff esponenziale.
+   *
+   * T1.6 — Idempotency: se un retry parziale BullMQ riprocessa una guide,
+   * skipper i chunk_hash già presenti in DB (NO chiamata API ripetuta) e
+   * inserisce solo i mancanti. Niente più 50× chiamate Gemini su fail al chunk 49.
+   *
+   * Throw su errore API SOLO per chunk realmente nuovi → BullMQ retenta con
+   * backoff esponenziale ma il prossimo retry parte da dove si era fermato.
    */
   async embedAndStoreGuide(guideId: number): Promise<void> {
     const start = performance.now();
@@ -151,26 +160,45 @@ export const EmbeddingService = {
     const isShort = fullText.length <= MAX_INPUT_CHARS;
     const chunks = isShort ? [fullText] : EmbeddingService.chunkText(fullText);
 
-    // Prima generiamo TUTTI gli embedding; se uno fallisce, throw e retry via BullMQ.
-    // Non tocchiamo ancora il DB → se l'API è giù, i dati esistenti restano intatti.
+    // T1.6 — fetch dei chunk_hash già embeddati per questa guide+model. I chunk
+    // il cui hash è già presente vengono saltati senza chiamare Gemini.
+    const existingHashes = await EmbeddingsModel.existingHashes(guideId, EMBEDDING_MODEL);
+
     const items: EmbeddingInsert[] = [];
+    let skipped = 0;
+    let generated = 0;
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i]!;
+      const hash = chunkHash(chunk);
+      if (existingHashes.has(hash)) {
+        skipped++;
+        continue;
+      }
       const embedding = await EmbeddingService.generateEmbedding(chunk);
       if (embedding === null) {
+        // Throw → BullMQ retenta. Al prossimo retry, existingHashes coprirà
+        // i chunk già scritti dai retry precedenti.
         throw new Error(
           `Embedding failed for guide ${guideId} chunk ${i}/${chunks.length}`,
         );
       }
       items.push({ chunk_index: i, chunk_text: chunk, embedding });
+      generated++;
     }
 
-    // Transazione: delete vecchi + insert nuovi + flag=false. Tutto o niente.
+    // Transazione: insert idempotente (ON CONFLICT DO NOTHING) + flag=false.
+    // Non facciamo più deleteByGuide: gli hash mismatched sono trattati come
+    // nuovi chunk (pure adds). Se la guide cambia content, l'hash cambia e i
+    // nuovi insert convivono — il caller può fare cleanup esplicito se serve.
     const client = await getClient();
     try {
       await client.query("BEGIN");
-      await EmbeddingsModel.deleteByGuide(guideId, client);
-      const inserted = await EmbeddingsModel.insertBatch(guideId, items, client);
+      const inserted = items.length > 0
+        ? await EmbeddingsModel.insertBatch(guideId, items, client, {
+            language: guide.language,
+            embeddingModel: EMBEDDING_MODEL,
+          })
+        : 0;
       await client.query(
         `-- Segna la guida come embeddata; updated_at NON toccato (solo metadata tecnico).
          UPDATE guides SET embedding_pending = false WHERE id = $1`,
@@ -180,8 +208,8 @@ export const EmbeddingService = {
 
       const ms = Math.round(performance.now() - start);
       logger.info(
-        { guideId, chunks: chunks.length, inserted, ms },
-        "Guida embeddata e salvata",
+        { guideId, chunks: chunks.length, generated, skipped, inserted, ms },
+        "Guida embeddata e salvata (idempotent T1.6)",
       );
     } catch (err) {
       await client.query("ROLLBACK").catch(() => undefined);

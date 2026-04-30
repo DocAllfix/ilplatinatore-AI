@@ -1,3 +1,4 @@
+import { franc } from "franc-min";
 import { GamesModel, type GameRow } from "@/models/games.model.js";
 import {
   TrophyLookupService,
@@ -36,9 +37,9 @@ export interface NormalizedQuery {
   rawQuery: string;
 }
 
-// ── Language detection: euristica parole funzione ─────────────────────────
-// Non è perfetta ma NON servono librerie esterne: il RAG e il template ci
-// girano attorno bene (translateGuide assorbe gli errori di routing).
+// ── Stopwords IT/EN per filtro token in extractGame (NON language detection) ─
+// Usate in FILTER_TOKENS più sotto per ridurre il rumore prima del fuzzy match
+// pg_trgm su games. La detection vera è fatta da franc-min in detectLanguage.
 const IT_MARKERS = [
   "come", "perché", "dove", "trovo", "ottengo", "prendo", "guida", "trofeo",
   "passaggi", "missabile", "platino", "sconfiggere", "boss", "il", "la", "lo",
@@ -49,16 +50,55 @@ const EN_MARKERS = [
   "platinum", "defeat", "boss", "the", "of", "a", "in", "what",
 ];
 
+// ── Language detection (T1.1 — multilingua reale) ─────────────────────────
+// franc-min restituisce ISO-639-3 (3 char). Mappiamo alle 9 lingue Tier 1
+// supportate dal sistema. Default 'en' su 'und' o lingua non whitelistata.
+//
+// Whitelist Tier 1: it, en, es, fr, de, pt, ja, zh, ru — coerente con
+// HEADERS_I18N in prompt.builder.ts. Aggiungere una lingua qui richiede:
+//   1. add ISO_639_3_TO_1 entry
+//   2. add headers in prompt.builder HEADERS_I18N
+//   3. add ts_config in migration 029 trigger (se serve FTS dedicato)
+
+const ISO_639_3_TO_1: Record<string, string> = {
+  ita: "it",
+  eng: "en",
+  spa: "es",
+  fra: "fr",
+  deu: "de",
+  por: "pt",
+  jpn: "ja",
+  cmn: "zh", // Mandarin (franc usa cmn, mappiamo a zh per ISO-639-1)
+  zho: "zh", // generic Chinese
+  rus: "ru",
+};
+
+const SUPPORTED_LANGS = new Set(Object.values(ISO_639_3_TO_1));
+
+const FRANC_MIN_LENGTH = 10; // sotto 10 char franc è troppo rumoroso → fallback EN
+
+/**
+ * Rileva lingua con franc-min. Restituisce un codice ISO-639-1 ∈ SUPPORTED_LANGS.
+ * Fallback 'en' per:
+ *   - query troppo corte (< FRANC_MIN_LENGTH)
+ *   - lingua non whitelisted (es. ar, ko, hi non supportati al T1)
+ *   - franc returns 'und' (undetermined)
+ */
 export function detectLanguage(query: string): string {
-  const tokens = query.toLowerCase().match(/[\p{L}]+/gu) ?? [];
-  let itHits = 0;
-  let enHits = 0;
-  for (const t of tokens) {
-    if (IT_MARKERS.includes(t)) itHits++;
-    if (EN_MARKERS.includes(t)) enHits++;
-  }
-  if (itHits === 0 && enHits === 0) return "en"; // default prudente
-  return itHits >= enHits ? "it" : "en";
+  const trimmed = query.trim();
+  if (trimmed.length < FRANC_MIN_LENGTH) return "en";
+
+  // only: limita franc a confrontare contro il subset Tier 1 → riduce falsi
+  // positivi su lingue rare (l'utente non scriverà mai in dialetti, etc.).
+  const detected = franc(trimmed, {
+    only: Object.keys(ISO_639_3_TO_1),
+    minLength: FRANC_MIN_LENGTH,
+  });
+
+  if (detected === "und") return "en";
+  const iso6391 = ISO_639_3_TO_1[detected];
+  if (!iso6391 || !SUPPORTED_LANGS.has(iso6391)) return "en";
+  return iso6391;
 }
 
 // ── Game extraction: prende il primo match GamesModel.search, se score alto ─

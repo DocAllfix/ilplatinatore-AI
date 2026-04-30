@@ -21,10 +21,13 @@ const mockGame = {
   id: 1,
   title: "Elden Ring",
   slug: "elden-ring",
-  psn_title_id: null,
-  igdb_id: null,
+  platform: [] as string[],
+  release_date: null,
+  genre: [] as string[],
   cover_url: null,
+  metadata: {} as Record<string, unknown>,
   created_at: new Date(),
+  updated_at: new Date(),
 };
 
 const mockTrophy = {
@@ -47,35 +50,60 @@ beforeEach(() => {
   vi.mocked(isAllowedLang).mockReturnValue(true);
 });
 
-// ── detectLanguage ─────────────────────────────────────────────────────────
+// ── detectLanguage (T1.1 — multilingua reale via franc-min) ──────────────
 
-describe("detectLanguage", () => {
-  it("riconosce italiano da marker tipici", () => {
-    expect(detectLanguage("come ottengo il trofeo platino")).toBe("it");
-    expect(detectLanguage("dove trovo la spada nella guida")).toBe("it");
+describe("detectLanguage — Tier 1 multilingua", () => {
+  it("riconosce italiano su frasi pure", () => {
+    expect(detectLanguage("voglio sapere come ottenere il trofeo di platino della guida")).toBe("it");
+    expect(detectLanguage("dove posso trovare la spada nella zona iniziale del gioco")).toBe("it");
   });
 
-  it("riconosce inglese da marker tipici", () => {
-    expect(detectLanguage("how do i get the trophy")).toBe("en");
-    expect(detectLanguage("where to find the weapon")).toBe("en");
+  it("riconosce inglese su frasi pure", () => {
+    expect(detectLanguage("i want to know how to get the platinum trophy from the guide")).toBe("en");
+    expect(detectLanguage("where can i find the legendary weapon in this game")).toBe("en");
   });
 
-  it("default prudente 'en' quando nessun marker hit", () => {
-    expect(detectLanguage("elden ring")).toBe("en");
-    expect(detectLanguage("XZY123")).toBe("en");
+  it("riconosce spagnolo", () => {
+    expect(detectLanguage("quisiera saber cuál es la mejor estrategia para conseguir todos los logros del juego")).toBe("es");
   });
 
-  it("preferisce IT quando itHits == enHits (equità: scegliamo IT)", () => {
-    expect(detectLanguage("come the")).toBe("it");
+  it("riconosce francese", () => {
+    expect(detectLanguage("je veux savoir comment obtenir le trophée de platine dans ce jeu")).toBe("fr");
   });
 
-  it("case-insensitive", () => {
-    expect(detectLanguage("COME OTTENGO IL TROFEO")).toBe("it");
-    expect(detectLanguage("HOW TO GET THE TROPHY")).toBe("en");
+  it("riconosce tedesco", () => {
+    expect(detectLanguage("ich möchte wissen wie man die platintrophäe in diesem spiel bekommt")).toBe("de");
   });
 
-  it("ignora punteggiatura e numeri", () => {
-    expect(detectLanguage("come??? trofeo!!! 123 platinatore")).toBe("it");
+  it("riconosce portoghese", () => {
+    expect(detectLanguage("eu quero saber como conseguir o troféu de platina deste jogo")).toBe("pt");
+  });
+
+  it("riconosce giapponese", () => {
+    expect(detectLanguage("エルデンリングのプラチナトロフィーの取り方を教えて")).toBe("ja");
+  });
+
+  it("riconosce cinese", () => {
+    expect(detectLanguage("艾尔登法环白金奖杯怎么获得指南")).toBe("zh");
+  });
+
+  it("riconosce russo", () => {
+    expect(detectLanguage("как получить платиновый трофей в elden ring")).toBe("ru");
+  });
+
+  it("query troppo corte (< 10 char) → fallback 'en'", () => {
+    expect(detectLanguage("ciao")).toBe("en");
+    expect(detectLanguage("XZY")).toBe("en");
+  });
+
+  it("lingue non whitelistate (es. arabo) → fallback 'en'", () => {
+    // L'arabo non è in Tier 1 ('only' di franc esclude arb): franc returns 'und'
+    // o una lingua non in mapping → fallback "en".
+    expect(detectLanguage("كيف أحصل على جائزة البلاتين في إلدن رينغ")).toBe("en");
+  });
+
+  it("undetermined / gibberish → fallback 'en'", () => {
+    expect(detectLanguage("XZY123 ?@# ABC")).toBe("en");
   });
 });
 

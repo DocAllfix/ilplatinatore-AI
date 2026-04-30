@@ -66,7 +66,9 @@ export function buildPromptContext(
     gameTitle: norm.game?.title ?? "gioco non identificato",
     targetName: norm.trophy?.name_en ?? norm.topic ?? query,
     guideType: norm.guideType,
-    language: DB_CANONICAL_LANGUAGE, // LLM risponde in EN → traduciamo a valle
+    // T1.4 — i18n native: il prompt builder genera direttamente in norm.language
+    // (fallback EN per lingue non whitelisted). Niente più traduzione a valle.
+    language: norm.language,
     userQuery: query,
     ...(norm.trophy && {
       psnAnchor: {
