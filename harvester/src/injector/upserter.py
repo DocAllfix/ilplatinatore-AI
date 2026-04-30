@@ -2,6 +2,12 @@
 
 **FF-NEW-3:** l'harvester NON inserisce embedding né tocca Redis/BullMQ.
 Il contratto con il backend Node è solo `guides.embedding_pending = true`.
+
+Used by: HarvestPipeline (src/orchestrator/pipeline.py) — invocato dopo
+GuideSynthesizer per persistere atomicamente la guida prodotta. Implementa
+il pattern concept_idempotency_on_conflict via ON CONFLICT DO UPDATE su slug,
+chiamato da HarvestPipeline.process_single_guide / process_with_reddit /
+inject_synthetic.
 """
 
 from __future__ import annotations

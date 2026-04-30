@@ -6,6 +6,10 @@ Provider supportati (TRANSFORMER_PROVIDER in .env):
 
 Gestisce quota giornaliera (settings.daily_gemini_limit), parsing JSON robusto
 (con strip di markdown fences), logging strutturato.
+
+Used by: HarvestPipeline (src/orchestrator/pipeline.py) — invocato dopo i
+collector per produrre la guida sintetizzata in inglese (concept_db_canonical_english)
+prima dell'upsert in DB via Upserter.
 """
 
 from __future__ import annotations
