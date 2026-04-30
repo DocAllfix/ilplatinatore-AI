@@ -43,6 +43,10 @@ vi.mock("@/services/llm.service.js", () => ({
   generateGuide: vi.fn(),
 }));
 
+vi.mock("@/services/notification.service.js", () => ({
+  notifyNewDraft: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { redis } from "@/config/redis.js";
 import { GuideDraftsModel } from "@/models/guideDrafts.model.js";
 import { generateGuide } from "@/services/llm.service.js";
@@ -263,6 +267,65 @@ describe("rejectDraft", () => {
     mockModel.findById.mockResolvedValueOnce(makeDraft({ status: "approved" }) as never);
     await expect(rejectDraft(DRAFT_ID)).rejects.toThrow(ValidationError);
     expect(mockModel.updateStatus).not.toHaveBeenCalled();
+  });
+});
+
+// ── getDraft — errore DB non-NotFoundError ────────────────────────────────────
+
+describe("getDraft — errore DB generico", () => {
+  it("propaga errori DB che non sono NotFoundError (logger + rethrow)", async () => {
+    mockModel.findById.mockRejectedValueOnce(new Error("connection reset"));
+    await expect(getDraft(DRAFT_ID)).rejects.toThrow("connection reset");
+  });
+});
+
+// ── reviseDraft — incrementIteration null fallback ────────────────────────────
+
+describe("reviseDraft — fallback iteration_count", () => {
+  it("usa draft.iteration_count+1 quando incrementIteration ritorna null", async () => {
+    const draft = makeDraft({ iteration_count: 1 });
+    mockModel.findById.mockResolvedValueOnce(draft as never);
+    mockLlm.mockResolvedValueOnce({ content: "rev", templateId: "t", model: "m", finishReason: null, elapsedMs: 1 });
+    mockModel.incrementIteration.mockResolvedValueOnce(null as never);
+    mockModel.update.mockResolvedValueOnce(makeDraft() as never);
+    mockModel.updateStatus.mockResolvedValueOnce(makeDraft({ status: "revision" }) as never);
+
+    const result = await reviseDraft(DRAFT_ID, "feedback");
+
+    expect(result.iterationCount).toBe(2); // draft.iteration_count (1) + 1
+    expect(result.status).toBe("revision");
+  });
+});
+
+// ── approveDraft — rami mancanti ──────────────────────────────────────────────
+
+describe("approveDraft — rami non coperti", () => {
+  it("lancia NotFoundError quando markApproved ritorna null", async () => {
+    mockModel.findById.mockResolvedValueOnce(makeDraft({ status: "pending_approval" }) as never);
+    mockModel.markApproved.mockResolvedValueOnce(null as never);
+    await expect(approveDraft(DRAFT_ID)).rejects.toThrow(NotFoundError);
+  });
+
+  it("propaga errore DB generico da markApproved (non-NotFoundError/ValidationError)", async () => {
+    mockModel.findById.mockResolvedValueOnce(makeDraft({ status: "pending_approval" }) as never);
+    mockModel.markApproved.mockRejectedValueOnce(new Error("DB constraint"));
+    await expect(approveDraft(DRAFT_ID)).rejects.toThrow("DB constraint");
+  });
+});
+
+// ── rejectDraft — rami mancanti ───────────────────────────────────────────────
+
+describe("rejectDraft — rami non coperti", () => {
+  it("lancia NotFoundError quando updateStatus ritorna null", async () => {
+    mockModel.findById.mockResolvedValueOnce(makeDraft({ status: "pending_approval" }) as never);
+    mockModel.updateStatus.mockResolvedValueOnce(null as never);
+    await expect(rejectDraft(DRAFT_ID)).rejects.toThrow(NotFoundError);
+  });
+
+  it("propaga errore DB generico da updateStatus (non-NotFoundError/ValidationError)", async () => {
+    mockModel.findById.mockResolvedValueOnce(makeDraft({ status: "pending_approval" }) as never);
+    mockModel.updateStatus.mockRejectedValueOnce(new Error("timeout"));
+    await expect(rejectDraft(DRAFT_ID)).rejects.toThrow("timeout");
   });
 });
 

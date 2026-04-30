@@ -74,6 +74,11 @@ const envSchema = z.object({
   // ── Guide Drafts ─────────────────────────────────────────────
   // TTL Redis per stato conversazione bozze (default 30 min)
   DRAFT_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
+  // Webhook OPZIONALE: notifica admin su nuove bozze HITL.
+  // Compatibile con Slack incoming webhook, Discord webhook, n8n, Zapier.
+  // Se vuoto → notifiche disabilitate (no-op silenzioso).
+  ADMIN_WEBHOOK_URL: z.string().default(""),
+  ADMIN_DASHBOARD_URL: z.string().default(""),
 
   // ── Rate Limits ─────────────────────────────────────────────
   RATE_LIMIT_FREE_DAILY: z.coerce.number().int().positive().default(3),

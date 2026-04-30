@@ -355,4 +355,67 @@ export const GuideDraftsModel = {
       throw err;
     }
   },
+
+  async findByStatus(
+    status: DraftStatus,
+    limit = 20,
+    offset = 0,
+  ): Promise<GuideDraftRow[]> {
+    try {
+      const res = await query<GuideDraftRow>(
+        `-- Lista filtrata per status (admin dashboard). idx_guide_drafts_status copre il filtro.
+         SELECT ${DRAFT_COLS}
+         FROM guide_drafts
+         WHERE status = $1
+         ORDER BY created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [status, limit, offset],
+      );
+      return res.rows;
+    } catch (err) {
+      logger.error({ err, status }, "GuideDraftsModel.findByStatus failed");
+      throw err;
+    }
+  },
+
+  async countByStatus(status: DraftStatus): Promise<number> {
+    try {
+      const res = await query<{ count: string }>(
+        `-- Conta bozze per stato (paginazione + dashboard).
+         SELECT COUNT(*)::text AS count FROM guide_drafts WHERE status = $1`,
+        [status],
+      );
+      return parseInt(res.rows[0]?.count ?? "0", 10);
+    } catch (err) {
+      logger.error({ err, status }, "GuideDraftsModel.countByStatus failed");
+      throw err;
+    }
+  },
+
+  async getStats(): Promise<Record<DraftStatus, number>> {
+    try {
+      const res = await query<{ status: DraftStatus; count: string }>(
+        `-- Snapshot di tutti gli stati FSM in una sola query (dashboard admin).
+         SELECT status, COUNT(*)::text AS count
+         FROM guide_drafts
+         GROUP BY status`,
+      );
+      const stats: Record<DraftStatus, number> = {
+        draft: 0,
+        revision: 0,
+        pending_approval: 0,
+        approved: 0,
+        rejected: 0,
+        published: 0,
+        failed: 0,
+      };
+      for (const row of res.rows) {
+        stats[row.status] = parseInt(row.count, 10);
+      }
+      return stats;
+    } catch (err) {
+      logger.error({ err }, "GuideDraftsModel.getStats failed");
+      throw err;
+    }
+  },
 };

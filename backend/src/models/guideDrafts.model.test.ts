@@ -358,3 +358,79 @@ describe("GuideDraftsModel.getPendingApproval", () => {
     expect(result).toEqual([]);
   });
 });
+
+// ── findByStatus ──────────────────────────────────────────────────────────────
+
+describe("GuideDraftsModel.findByStatus", () => {
+  it("filtra per status arbitrario e usa DESC (più recente prima)", async () => {
+    mockQuery.mockResolvedValueOnce(pgResult([makeDraftRow({ status: "approved" })]));
+
+    const result = await GuideDraftsModel.findByStatus("approved", 5, 10);
+
+    expect(result).toHaveLength(1);
+    const [sql, params] = mockQuery.mock.calls[0]!;
+    expect(sql).toContain("WHERE status = $1");
+    expect(sql).toContain("ORDER BY created_at DESC");
+    expect(params![0]).toBe("approved");
+    expect(params![1]).toBe(5);
+    expect(params![2]).toBe(10);
+  });
+
+  it("default limit=20 offset=0", async () => {
+    mockQuery.mockResolvedValueOnce(pgResult([]));
+    await GuideDraftsModel.findByStatus("rejected");
+    const [, params] = mockQuery.mock.calls[0]!;
+    expect(params![1]).toBe(20);
+    expect(params![2]).toBe(0);
+  });
+});
+
+// ── countByStatus ─────────────────────────────────────────────────────────────
+
+describe("GuideDraftsModel.countByStatus", () => {
+  it("ritorna numero parsato da COUNT::text", async () => {
+    mockQuery.mockResolvedValueOnce(pgResult([{ count: "42" }] as never));
+    const n = await GuideDraftsModel.countByStatus("pending_approval");
+    expect(n).toBe(42);
+    const [sql, params] = mockQuery.mock.calls[0]!;
+    expect(sql).toContain("COUNT(*)::text");
+    expect(params![0]).toBe("pending_approval");
+  });
+
+  it("ritorna 0 quando nessuna riga corrisponde", async () => {
+    mockQuery.mockResolvedValueOnce(pgResult([]));
+    const n = await GuideDraftsModel.countByStatus("failed");
+    expect(n).toBe(0);
+  });
+});
+
+// ── getStats ──────────────────────────────────────────────────────────────────
+
+describe("GuideDraftsModel.getStats", () => {
+  it("aggrega tutti gli stati FSM con default 0 per stati assenti", async () => {
+    mockQuery.mockResolvedValueOnce(
+      pgResult([
+        { status: "draft", count: "3" },
+        { status: "pending_approval", count: "5" },
+        { status: "approved", count: "2" },
+      ] as never),
+    );
+
+    const stats = await GuideDraftsModel.getStats();
+
+    expect(stats.draft).toBe(3);
+    expect(stats.pending_approval).toBe(5);
+    expect(stats.approved).toBe(2);
+    // Stati non presenti nel result set → default 0 (non undefined)
+    expect(stats.revision).toBe(0);
+    expect(stats.rejected).toBe(0);
+    expect(stats.published).toBe(0);
+    expect(stats.failed).toBe(0);
+  });
+
+  it("ritorna tutti zeri se la tabella è vuota", async () => {
+    mockQuery.mockResolvedValueOnce(pgResult([]));
+    const stats = await GuideDraftsModel.getStats();
+    expect(Object.values(stats).every((v) => v === 0)).toBe(true);
+  });
+});

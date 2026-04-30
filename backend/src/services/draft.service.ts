@@ -11,6 +11,7 @@ import {
 } from "@/models/guideDrafts.model.js";
 import { NotFoundError, ValidationError } from "@/utils/errors.js";
 import type { PromptContext } from "@/services/prompt.builder.js";
+import { notifyNewDraft } from "@/services/notification.service.js";
 
 const MAX_ITERATIONS = 5;
 const CONV_KEY_PREFIX = "draft:conv:";
@@ -96,6 +97,13 @@ export async function createDraft(params: DraftCreateParams): Promise<GuideDraft
       role: "model",
       text: params.content,
       timestamp: Date.now(),
+    });
+
+    // Fire-and-forget: notifica admin via webhook (timeout 3s, fail-open).
+    // Il .catch() neutralizza il dangling promise; notifyNewDraft già non lancia,
+    // ma manteniamo la guard per difesa in profondità.
+    notifyNewDraft(draft).catch(() => {
+      /* notifyNewDraft è fail-open per design — non si arriva qui */
     });
 
     logger.info({ draftId: draft.id, gameId: params.gameId }, "draft.service: bozza creata");

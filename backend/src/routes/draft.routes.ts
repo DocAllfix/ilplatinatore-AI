@@ -12,7 +12,7 @@ import {
   getConvHistory,
 } from "@/services/draft.service.js";
 import { ingestApprovedDraft } from "@/services/ingestion.service.js";
-import { GuideDraftsModel } from "@/models/guideDrafts.model.js";
+import { GuideDraftsModel, type DraftStatus } from "@/models/guideDrafts.model.js";
 
 export const draftRouter = Router();
 
@@ -33,6 +33,22 @@ const pendingQuerySchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+const DRAFT_STATUSES: readonly DraftStatus[] = [
+  "draft",
+  "revision",
+  "pending_approval",
+  "approved",
+  "rejected",
+  "published",
+  "failed",
+] as const;
+
+const listQuerySchema = z.object({
+  status: z.enum(DRAFT_STATUSES as unknown as [DraftStatus, ...DraftStatus[]]),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function parseUuidOrThrow(raw: string): string {
@@ -40,6 +56,17 @@ function parseUuidOrThrow(raw: string): string {
   if (!result.success) throw new NotFoundError("Bozza non trovata");
   return result.data;
 }
+
+// ── GET /api/draft/stats ──────────────────────────────────────────────────────
+// Conteggi per stato — dashboard admin. Ordine: PRIMA di /:id (Express match).
+draftRouter.get(
+  "/stats",
+  requireAuth,
+  asyncHandler(async (_req: Request, res: Response) => {
+    const stats = await GuideDraftsModel.getStats();
+    res.json({ data: stats });
+  }),
+);
 
 // ── GET /api/draft/pending ────────────────────────────────────────────────────
 // IMPORTANTE: deve essere registrata PRIMA di /:id per evitare che Express
@@ -52,8 +79,30 @@ draftRouter.get(
     const { limit, offset } = req.query as unknown as z.infer<
       typeof pendingQuerySchema
     >;
-    const drafts = await GuideDraftsModel.getPendingApproval(limit, offset);
-    res.json({ data: drafts, meta: { limit, offset, total: drafts.length } });
+    // Total da COUNT (non da drafts.length, che è solo la pagina corrente).
+    const [drafts, total] = await Promise.all([
+      GuideDraftsModel.getPendingApproval(limit, offset),
+      GuideDraftsModel.countByStatus("pending_approval"),
+    ]);
+    res.json({ data: drafts, meta: { limit, offset, total } });
+  }),
+);
+
+// ── GET /api/draft?status=...&limit=...&offset=... ────────────────────────────
+// Lista filtrata per qualsiasi stato FSM (admin). Path "/" registrato dopo /pending.
+draftRouter.get(
+  "/",
+  requireAuth,
+  validate(listQuerySchema, "query"),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { status, limit, offset } = req.query as unknown as z.infer<
+      typeof listQuerySchema
+    >;
+    const [drafts, total] = await Promise.all([
+      GuideDraftsModel.findByStatus(status, limit, offset),
+      GuideDraftsModel.countByStatus(status),
+    ]);
+    res.json({ data: drafts, meta: { status, limit, offset, total } });
   }),
 );
 
