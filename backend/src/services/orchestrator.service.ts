@@ -21,6 +21,7 @@ import {
   appendTurn,
   clearConversation,
 } from "@/services/conversation.memory.js";
+import { scoreGuideContent } from "@/services/quality.scorer.js";
 
 // T3.1 — Conversational identifier: privilegia userId (stabile across sessions),
 // fallback a sessionId per anonymous. Non-empty richiesto altrimenti memory disabled.
@@ -162,6 +163,27 @@ export async function handleGuideRequest(
     }
   }
 
+  // STEP 6c — T4.1 KF-6 Auto-quality scoring. Calcolato solo se LLM ha prodotto
+  // contenuto reale. Espone qualityScore + routeToHitl in meta — il frontend
+  // decide se mostrare warning. Fail-open: errore scorer → score undefined.
+  let qualityScore: number | undefined;
+  let routeToHitl: boolean | undefined;
+  if (llmSucceeded && finalContent) {
+    try {
+      const qr = scoreGuideContent({
+        content: finalContent,
+        guideType: norm.guideType,
+        language: norm.language,
+        sources: bundle.sources,
+        ...(unverifiedPsnIds && { unverifiedPsnIds }),
+      });
+      qualityScore = qr.score;
+      routeToHitl = qr.routeToHitl;
+    } catch (err) {
+      logger.warn({ err }, "orchestrator STEP 6c (quality.scorer): non-fatal");
+    }
+  }
+
   // STEP 7 — cache + log + tracker + memory (tutti non-fatal)
   const payload: CachedGuide = {
     content: finalContent, sources: bundle.sources,
@@ -218,6 +240,8 @@ export async function handleGuideRequest(
       ...(draftId !== undefined && { draftId, canRevise: true, canApprove: false }),
       ...(unverifiedPsnIds && { unverifiedPsnIds }),
       ...(norm.gameCandidates && { gameCandidates: norm.gameCandidates }),
+      ...(qualityScore !== undefined && { qualityScore }),
+      ...(routeToHitl && { routeToHitl }),
     },
   };
 }

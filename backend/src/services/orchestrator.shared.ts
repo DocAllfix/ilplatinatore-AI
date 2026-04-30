@@ -55,6 +55,11 @@ export interface HandleGuideResult {
     // comparabile, il frontend mostra chip e l'utente sceglie. Il chatbot
     // SCEGLIE COMUNQUE il top1 ma segnala l'ambiguità nel meta.
     gameCandidates?: Array<{ id: number; title: string; slug: string; similarity: number }>;
+    // T4.1 — KF-6 Auto-quality scoring (0..100). Sotto 60: frontend mostra
+    // warning + suggerisce di consultare la bozza HITL.
+    qualityScore?: number;
+    /** True se qualityScore < 60 (forza UI verso HITL flow). */
+    routeToHitl?: boolean;
   };
 }
 

@@ -4,9 +4,131 @@ Mappa concept → implementazione. Questo documento esiste per chiudere il gap d
 graphify tra **concept_*** nodes (estratti dai README) e i **file/funzioni concrete**
 che li realizzano nel codice.
 
+> Versione: post-Sprint 4 Pre-Beta · Updated 2026-04-30
+
 Ogni sezione segue il pattern:
 > **Concept**: descrizione breve.
 > *Implementato in*: `path/to/file.ts:funzione`, `path/to/altro.ts:metodo`.
+
+---
+
+## Pipeline orchestrator — sequenza completa post-Sprint 1-3
+
+Quando un utente pone una domanda al chatbot:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  POST /api/guide  (or  GET /api/guide/stream)                            │
+│  Headers: cookie refresh_token (httpOnly)  body: {query, language?,      │
+│  sessionId?, explicitGameId? (T3.2)}                                     │
+└─────────────────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│  guide.routes.ts                                                         │
+│   1. optionalAuth → req.user populated if JWT valid                      │
+│   2. tierRateLimiter (T2.6) → free=5/min, reg=10, pro=30, plat=∞         │
+│   3. validate(zod) → reject malformed payload                            │
+└─────────────────────────────────────────────────────────────────────────┘
+        ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│  orchestrator.service.handleGuideRequest                                 │
+│  (or orchestrator.stream.handleGuideStream for SSE)                      │
+└─────────────────────────────────────────────────────────────────────────┘
+        ↓
+   STEP 1 — normalize  ── query.normalizer.normalizeQuery
+        │   • detectLanguage via franc-min (T1.1) → 9 ISO-639-1 langs
+        │   • extractGameWithCandidates (T3.2) → top match + ambiguity flag
+        │   • extractTrophy (game-specific, lang-aware)
+        │   • extractTopicHint (regex IT/EN keyword)
+        │
+        ↓ (SSE only) emit stage="understanding" (T3.4)
+        ↓ (SSE only) emit "disambiguation" if gameCandidates (T3.2)
+        │
+   STEP 2 — cache check  ── guide.cache.GuideCache.get
+        │   • key = "guide:{game_slug}:{trophy_slug|topic|guide_type}:{lang}"
+        │   • TTL = GUIDE_CACHE_TTL_SECONDS (default 24h)
+        │   ├─ HIT  → return cached + popola conversation memory + return
+        │   └─ MISS → continue
+        │
+   STEP 2b — get conversation memory (T3.1) ── conversation.memory.getConversation
+        │   • Redis "conv:user:42" or "conv:session:xyz"
+        │   • TTL 1h, max 5 turn
+        │   • cross-game contamination → clearConversation auto
+        │
+   STEP 3 — retrieve  ── orchestrator.retrieval.retrieveContext
+        │   • dispatch: trophy → retrieveForTrophy
+        │              topic  → retrieveForTopic
+        │              else   → RagService.search
+        │   • RagService = HNSW vector + FTS multilingua (T1.3 ts_config)
+        │   • RRF fusion → top-N with index 1-based, reliability, verified (T3.3)
+        │
+   STEP 4 — scraping fallback  ── orchestrator.retrieval.enrichWithScraping
+        │   • only if ragContext is empty
+        │   • Tavily API → trusted domains filter
+        │   • daily quota cap T2.2 (incrementDailyCount post-success)
+        │
+        ↓ (SSE) emit stage="searching" (T3.4) with top 3 sources
+        ↓ (SSE) emit "meta" event
+        ↓ (SSE) emit stage="writing" (T3.4) before LLM stream
+        │
+   STEP 5 — LLM  ── llm.service.generateGuide / generateGuideStream
+        │   • prompt.builder.buildPrompt:
+        │     - SYSTEM_CORE i18n nativo (T1.4) — header in lingua target
+        │     - inline citations rule [N] (T3.3)
+        │     - PSN anchor (trophy guide_type only)
+        │     - Conversation history (T3.1, last 5 turn)
+        │     - sanitizeUserQuery (50+ pattern injection neutralized — T4.4)
+        │   • CircuitBreaker wrap → "circuit OPEN" su 3 consecutivi
+        │   • Stream: token-by-token via async generator
+        │
+        ↓ (SSE) emit "delta" events token-by-token
+        │
+   STEP 6 — translate  SKIPPED  (T1.4 — prompt builder genera native lang)
+        │
+   STEP 6b — PSN cross-check (T3.5)  ── psn.validator.validatePsnTrophyIdsInContent
+        │   • regex extraction with lookahead negativo (truncation safety)
+        │   • batch lookup TrophyLookupService.findUnverifiedPsnIds
+        │   • populates meta.unverifiedPsnIds[]
+        │
+   STEP 6c — Quality scorer (T4.1)  ── quality.scorer.scoreGuideContent
+        │   • 6 metriche: length, headers, sources, no_refusal, psn, verified
+        │   • score 0-100 + breakdown
+        │   • routeToHitl=true se score<60 → frontend mostra warning
+        │
+   STEP 7 — cache + log + tracker + memory
+        │   • GuideCache.set (TTL 24h)
+        │   • logAndTrack → query_log + guide_request_tracker (trophy-only)
+        │   • conversation.memory.appendTurn (user + assistant turns)
+        │
+   STEP 8 — HITL draft creation
+        │   • only if sourceUsed !== 'rag' AND llmSucceeded
+        │   • createDraft → tabella guide_drafts (FSM start: 'draft')
+        │   • notifyNewDraft (webhook fire-and-forget, fail-open)
+        │
+        ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Response JSON (or SSE "done" event):                                    │
+│    content, sources[], meta {                                            │
+│      cached, gameDetected, trophyDetected, guideType, sourceUsed,        │
+│      language, elapsedMs, templateId,                                    │
+│      draftId? canRevise? (HITL),                                         │
+│      unverifiedPsnIds? (T3.5 anti-hallucination flags),                  │
+│      gameCandidates? (T3.2 disambig),                                    │
+│      qualityScore? routeToHitl? (T4.1)                                   │
+│    }                                                                     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### SSE event types completi (post-Sprint 3)
+
+| Event | Quando | Payload |
+|-------|--------|---------|
+| `stage` | post-normalize, post-retrieve, pre-LLM | `{phase: 'understanding'\|'searching'\|'writing', detail}` |
+| `disambiguation` | gameCandidates rilevato | `{chosen, candidates[]}` |
+| `meta` | post-retrieve, pre-LLM | `{cached, sourceUsed, ...}` |
+| `delta` | per ogni chunk LLM | `{text}` |
+| `done` | end stream | `{elapsedMs, length, templateId, model, unverifiedPsnIds?}` |
+| `error` | qualsiasi crash non recuperabile | `{message}` |
 
 ---
 

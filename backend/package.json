@@ -14,7 +14,8 @@
     "lint": "eslint src/",
     "migrate": "tsx scripts/run-migrations.ts",
     "seed": "tsx src/scripts/bulk-seed.ts",
-    "re-embed": "tsx src/scripts/re-embed-pending.ts"
+    "re-embed": "tsx src/scripts/re-embed-pending.ts",
+    "load-test": "tsx scripts/load-test.ts"
   },
   "keywords": [
     "ai",
