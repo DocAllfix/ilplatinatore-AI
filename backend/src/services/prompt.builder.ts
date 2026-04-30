@@ -209,6 +209,27 @@ const BUILDERS: Record<GuideType, (ctx: PromptContext) => BuiltPrompt> = {
 };
 
 /**
+ * Sanitizza la query utente prima di iniettarla nel prompt LLM.
+ * Previene: newline injection, HTML, pattern classici di prompt injection.
+ * Non lancia mai — le query che non passano la validazione Zod non arrivano qui.
+ */
+export function sanitizeUserQuery(query: string): string {
+  let q = query;
+  // HTML/XML tags
+  q = q.replace(/<[^>]{0,200}>/g, "");
+  // Normalizza newline e tab a spazio (previene iniezione di blocchi SYSTEM/USER)
+  q = q.replace(/[\r\n\t]+/g, " ");
+  // Caratteri di controllo
+  q = q.replace(/[\x00-\x1f\x7f]/g, "");
+  // Pattern di prompt injection classici
+  q = q.replace(
+    /\b(ignore\s+(all\s+)?previous\s+instructions?|you\s+are\s+now|act\s+as\b|new\s+system\s+prompt|forget\s+(all\s+)?instructions?|system\s*:)/gi,
+    " ",
+  );
+  return q.replace(/\s{2,}/g, " ").trim().slice(0, 500);
+}
+
+/**
  * Dispatcher principale. L'aggiunta di un sesto guide_type richiede:
  *   1. relax del CHECK constraint in migration dedicata
  *   2. aggiunta case qui + template
@@ -219,5 +240,6 @@ export function buildPrompt(ctx: PromptContext): BuiltPrompt {
   if (!builder) {
     throw new Error(`prompt.builder: guide_type non supportato: ${ctx.guideType}`);
   }
-  return builder(ctx);
+  const safeCtx: PromptContext = { ...ctx, userQuery: sanitizeUserQuery(ctx.userQuery) };
+  return builder(safeCtx);
 }

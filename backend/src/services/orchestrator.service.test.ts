@@ -8,6 +8,7 @@ import {
   enrichWithScraping,
   type RetrievalBundle,
 } from "@/services/orchestrator.retrieval.js";
+import { createDraft } from "@/services/draft.service.js";
 
 // ── Mock dependency tree ────────────────────────────────────────────────────
 //
@@ -56,6 +57,10 @@ vi.mock("@/services/orchestrator.shared.js", async () => {
   };
 });
 
+vi.mock("@/services/draft.service.js", () => ({
+  createDraft: vi.fn(),
+}));
+
 // Silenziamo il logger per mantenere l'output dei test pulito (errori loggati
 // volutamente dall'orchestrator nei path di degradation non devono inquinare CI).
 vi.mock("@/utils/logger.js", () => ({
@@ -75,9 +80,10 @@ const mockedGenerate = vi.mocked(generateGuide);
 const mockedTranslate = vi.mocked(translateGuide);
 const mockedRetrieve = vi.mocked(retrieveContext);
 const mockedEnrich = vi.mocked(enrichWithScraping);
+const mockedCreateDraft = vi.mocked(createDraft);
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function stubNorm(overrides: Partial<any> = {}) {
+function stubNorm(overrides: Partial<any> = {}): import("@/services/query.normalizer.js").NormalizedQuery {
   return {
     language: "en",
     game: null,
@@ -129,6 +135,8 @@ beforeEach(() => {
     elapsedMs: 42,
   });
   mockedTranslate.mockImplementation(async (text: string) => text);
+  // Default createDraft: ritorna bozza minima con id stabile.
+  mockedCreateDraft.mockResolvedValue({ id: "draft-uuid-test-000" } as never);
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -315,5 +323,78 @@ describe("handleGuideRequest — Test 6: tutti gli step falliscono", () => {
     expect(res.meta.language).toBe("en");
     expect(typeof res.meta.elapsedMs).toBe("number");
     expect(res.sources).toEqual([]);
+  });
+});
+
+describe("handleGuideRequest — Test 7: HITL auto-draft (STEP 8)", () => {
+  it("crea bozza e restituisce draftId quando sourceUsed='scraping'", async () => {
+    mockedNormalize.mockResolvedValue(
+      stubNorm({ game: { id: 1, title: "Elden Ring", slug: "elden-ring" } }),
+    );
+    mockedRetrieve.mockResolvedValue(bundleRag("scraping"));
+
+    const res = await handleGuideRequest({ query: "elden ring boss guide", language: "en" });
+
+    expect(mockedCreateDraft).toHaveBeenCalledOnce();
+    expect(res.meta.draftId).toBe("draft-uuid-test-000");
+    expect(res.meta.canRevise).toBe(true);
+    expect(res.meta.canApprove).toBe(false);
+  });
+
+  it("crea bozza quando sourceUsed='none'", async () => {
+    mockedNormalize.mockResolvedValue(stubNorm());
+    mockedRetrieve.mockResolvedValue(bundleEmpty());
+
+    const res = await handleGuideRequest({ query: "guida generica", language: "en" });
+
+    expect(mockedCreateDraft).toHaveBeenCalledOnce();
+    expect(res.meta.draftId).toBe("draft-uuid-test-000");
+  });
+
+  it("NON crea bozza quando sourceUsed='rag' (contenuto verificato)", async () => {
+    mockedNormalize.mockResolvedValue(
+      stubNorm({ game: { id: 1, title: "Elden Ring", slug: "elden-ring" } }),
+    );
+    mockedRetrieve.mockResolvedValue(bundleRag("rag"));
+
+    const res = await handleGuideRequest({ query: "guida elden ring", language: "en" });
+
+    expect(mockedCreateDraft).not.toHaveBeenCalled();
+    expect(res.meta.draftId).toBeUndefined();
+  });
+
+  it("NON crea bozza quando LLM fallisce (content di degradation non va in HITL)", async () => {
+    mockedNormalize.mockResolvedValue(stubNorm());
+    mockedRetrieve.mockResolvedValue(bundleEmpty());
+    mockedGenerate.mockRejectedValueOnce(new Error("LLM down"));
+
+    const res = await handleGuideRequest({ query: "test", language: "en" });
+
+    expect(mockedCreateDraft).not.toHaveBeenCalled();
+    expect(res.meta.draftId).toBeUndefined();
+    expect(res.content).toContain("temporaneamente indisponibile");
+  });
+
+  it("fail-open: createDraft lancia → risposta valida senza draftId", async () => {
+    mockedNormalize.mockResolvedValue(stubNorm());
+    mockedRetrieve.mockResolvedValue(bundleEmpty());
+    mockedCreateDraft.mockRejectedValueOnce(new Error("DB error"));
+
+    const res = await handleGuideRequest({ query: "test", language: "en" });
+
+    expect(res.content).not.toContain("temporaneamente indisponibile");
+    expect(res.meta.draftId).toBeUndefined();
+    expect(res.meta.cached).toBe(false);
+  });
+
+  it("passa userId e sessionId dai params alla bozza", async () => {
+    mockedNormalize.mockResolvedValue(stubNorm());
+    mockedRetrieve.mockResolvedValue(bundleEmpty());
+
+    await handleGuideRequest({ query: "test", language: "en", userId: 42, sessionId: "sess-abc" });
+
+    const call = mockedCreateDraft.mock.calls[0]![0];
+    expect(call.userId).toBe(42);
+    expect(call.sessionId).toBe("sess-abc");
   });
 });

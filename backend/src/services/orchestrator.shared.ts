@@ -38,6 +38,10 @@ export interface HandleGuideResult {
     language: string;
     elapsedMs: number;
     templateId: string;
+    // Presente solo quando è stata creata una bozza HITL (sourceUsed ≠ rag)
+    draftId?: string;
+    canRevise?: boolean;
+    canApprove?: boolean;
   };
 }
 

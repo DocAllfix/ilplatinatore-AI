@@ -15,6 +15,7 @@ import {
   type HandleGuideParams,
   type HandleGuideResult,
 } from "@/services/orchestrator.shared.js";
+import { createDraft } from "@/services/draft.service.js";
 
 /**
  * Orchestratore Fase 16 — flusso 7-step, ogni step isolato in try/catch con
@@ -93,11 +94,13 @@ export async function handleGuideRequest(
   let llmContent = "";
   let templateId: string = norm.guideType;
   let model = "";
+  let llmSucceeded = false;
   try {
     const r = await generateGuide(buildPromptContext(norm, bundle, params.query));
     llmContent = r.content;
     templateId = r.templateId;
     model = r.model;
+    llmSucceeded = true;
   } catch (err) {
     logger.error({ err }, "orchestrator STEP 5 (LLM): fallito, ritorno messaggio di degradation");
     llmContent =
@@ -129,12 +132,42 @@ export async function handleGuideRequest(
   const elapsedMs = Date.now() - start;
   void logAndTrack(params, norm, bundle.sourceUsed, elapsedMs);
 
+  // STEP 8 — HITL: crea bozza per contenuto non-RAG (non-fatal)
+  // Solo se LLM ha prodotto contenuto reale (non il messaggio di degradation).
+  let draftId: string | undefined;
+  if (bundle.sourceUsed !== "rag" && llmSucceeded) {
+    try {
+      const draftSources = bundle.sources
+        .filter((s) => !!(s.url && s.domain))
+        .map((s) => ({ url: s.url as string, domain: s.domain as string, reliability: 0.7 }));
+      const draft = await createDraft({
+        content: finalContent,
+        sessionId: params.sessionId ?? null,
+        userId: params.userId ?? null,
+        gameId: norm.game?.id ?? null,
+        trophyId: norm.trophy?.id ?? null,
+        gameTitle: norm.game?.title ?? "unknown",
+        targetName: norm.trophy?.name_en ?? norm.topic ?? params.query,
+        guideType: norm.guideType,
+        topic: norm.topic,
+        language: norm.language,
+        originalQuery: params.query,
+        sources: draftSources,
+      });
+      draftId = draft.id;
+      logger.info({ draftId, sourceUsed: bundle.sourceUsed }, "orchestrator STEP 8: bozza HITL creata");
+    } catch (err) {
+      logger.warn({ err }, "orchestrator STEP 8 (createDraft): non-fatal");
+    }
+  }
+
   return {
     content: finalContent, sources: bundle.sources,
     meta: {
       cached: false, gameDetected: norm.game?.title ?? null,
       trophyDetected: norm.trophy?.name_en ?? null, guideType: norm.guideType,
       sourceUsed: bundle.sourceUsed, language: norm.language, elapsedMs, templateId,
+      ...(draftId !== undefined && { draftId, canRevise: true, canApprove: false }),
     },
   };
 }

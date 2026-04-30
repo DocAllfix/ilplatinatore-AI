@@ -7,6 +7,11 @@ import { AuthService, type TokenPair } from "@/services/auth.service.js";
 import { asyncHandler } from "@/utils/asyncHandler.js";
 import { UsersModel } from "@/models/users.model.js";
 import { AuthenticationError, NotFoundError } from "@/utils/errors.js";
+import { createRateLimiter } from "@/middleware/rateLimiter.js";
+
+const loginLimiter = createRateLimiter({ keyPrefix: "rl:login", windowMs: 15 * 60 * 1000, limit: 10 });
+const registerLimiter = createRateLimiter({ keyPrefix: "rl:register", windowMs: 60 * 60 * 1000, limit: 5 });
+const refreshLimiter = createRateLimiter({ keyPrefix: "rl:refresh", windowMs: 60 * 1000, limit: 20 });
 
 export const authRouter = Router();
 
@@ -88,6 +93,7 @@ function respondWithTokens(
 // ── Routes ────────────────────────────────────────────────────
 authRouter.post(
   "/register",
+  registerLimiter,
   validate(registerSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { email, password, displayName } = req.body as z.infer<
@@ -105,6 +111,7 @@ authRouter.post(
 
 authRouter.post(
   "/login",
+  loginLimiter,
   validate(loginSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = req.body as z.infer<typeof loginSchema>;
@@ -120,6 +127,7 @@ authRouter.post(
 // AUDIT FIX FF-NEW-1: il refresh arriva SOLO dal cookie, MAI dal body.
 authRouter.post(
   "/refresh",
+  refreshLimiter,
   asyncHandler(async (req: Request, res: Response) => {
     const token = readRefreshCookie(req);
     if (!token) throw new AuthenticationError("Refresh cookie assente");

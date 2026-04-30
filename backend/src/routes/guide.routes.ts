@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { asyncHandler } from "@/utils/asyncHandler.js";
 import { validate } from "@/middleware/validate.js";
+import { optionalAuth } from "@/middleware/auth.middleware.js";
 import {
   handleGuideRequest,
   handleGuideStream,
@@ -34,13 +35,13 @@ const guideStreamQuerySchema = z.object({
 // ── POST /api/guide — risposta JSON ────────────────────────────────────────
 guideRouter.post(
   "/",
+  optionalAuth,
   validate(guideRequestSchema, "body"),
   asyncHandler(async (req: Request, res: Response) => {
     const body = req.body as z.infer<typeof guideRequestSchema>;
     const result = await handleGuideRequest({
       query: body.query,
-      // userId verrà iniettato dal middleware auth quando sarà wired (Fase 18/19).
-      userId: null,
+      userId: req.user?.userId ?? null,
       sessionId: body.sessionId ?? null,
       ...(body.language && { language: body.language }),
     });
@@ -60,12 +61,13 @@ guideRouter.post(
  */
 guideRouter.get(
   "/stream",
+  optionalAuth,
   validate(guideStreamQuerySchema, "query"),
   asyncHandler(async (req: Request, res: Response) => {
     const q = req.query as unknown as z.infer<typeof guideStreamQuerySchema>;
     const params = {
       query: q.query,
-      userId: null,
+      userId: req.user?.userId ?? null,
       sessionId: q.sessionId ?? null,
       ...(q.language && { language: q.language }),
     };
