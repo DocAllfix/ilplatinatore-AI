@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "lint": "eslint src/",
-    "migrate": "tsx scripts/run-migrations.ts"
+    "migrate": "tsx scripts/run-migrations.ts",
+    "seed": "tsx src/scripts/bulk-seed.ts",
+    "re-embed": "tsx src/scripts/re-embed-pending.ts"
   },
   "keywords": [
     "ai",
