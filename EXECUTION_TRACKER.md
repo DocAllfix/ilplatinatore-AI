@@ -88,3 +88,33 @@ Prima di chiudere ogni task:
 ---
 
 **Status sintetico**: ✅ TUTTI 4 SPRINT COMPLETATI · 25/26 task chiusi (T2.7 HNSW skipped) · 601/601 test verdi · Pre-Beta READY.
+
+## Post-Sprint deliverables (autonomous execution)
+
+| Task | Stato | Output |
+|------|-------|--------|
+| Migration 031 — `users.beta_access` flag | ✅ applied | DB migrated |
+| Endpoint admin `POST /api/auth/admin/beta-access` | ✅ wired | platinum-only whitelist |
+| Middleware `requireBetaAccess` (env flag-gated) | ✅ wired | cache 60s in-memory |
+| Backend live + load test | ✅ run | rate limit 5/min verified, cache hit 29ms ✅ |
+| BENCH_RESULT.md | ✅ created | Pre-Beta thresholds documented |
+| Graphify regen + Obsidian vault sync | ✅ pushed | 1525 nodes, 320 communities, 1832 notes |
+| platinatore-graph repo push | ✅ `cebdf0f..9236fcf` | Obsidian Android sync |
+
+## Cosa resta a te (cose che NON posso fare)
+
+1. **Configurare `TAVILY_API_KEY` reale** in `.env` (richiede creds personali)
+2. **Cablare frontend** ai nuovi campi `meta`:
+   - `qualityScore`, `routeToHitl` (T4.1)
+   - `gameCandidates` (T3.2 chip selectable)
+   - `unverifiedPsnIds` (T3.5 flag rosso)
+   - SSE events `stage` (T3.4) e `disambiguation` (T3.2)
+   - `betaAccess` in `/me` response
+3. **Whitelist beta tester reali** via admin endpoint:
+   ```bash
+   curl -X POST /api/auth/admin/beta-access -H "Authorization: Bearer <admin_jwt>" \
+     -H "X-CSRF-Token: <csrf>" \
+     -d '{"userId": 42, "grant": true}'
+   ```
+4. **Set `BETA_GATING_ENABLED=true`** in `.env` di prod quando si attiva Beta closed.
+5. **Lanciare load test produzione** quando vuoi verificare p95 sotto carico reale (in dev il rate limit blocca le simulazioni multi-IP).

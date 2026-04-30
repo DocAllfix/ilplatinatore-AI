@@ -166,6 +166,7 @@ function serializeUser(row: NonNullable<Awaited<ReturnType<typeof UsersModel.fin
     tier: row.tier,
     language: row.language,
     avatarUrl: row.avatar_url,
+    betaAccess: row.beta_access,
   };
 }
 
@@ -197,5 +198,35 @@ authRouter.patch(
     const updated = await UsersModel.updateProfile(userId, update);
     if (!updated) throw new NotFoundError("Utente non trovato");
     res.json(serializeUser(updated));
+  }),
+);
+
+// ── POST /api/auth/admin/beta-access ─────────────────────────────────────
+// Sprint 4 final — Beta gating: admin endpoint per whitelist utenti.
+// Solo tier=platinum (admin de-facto) può grant/revoke. In futuro: ruolo
+// dedicato 'admin' separato dal tier commerciale.
+const grantBetaSchema = z.object({
+  userId: z.coerce.number().int().positive(),
+  grant: z.boolean(),
+}).strict();
+
+authRouter.post(
+  "/admin/beta-access",
+  requireAuth,
+  validate(grantBetaSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    if (req.user!.tier !== "platinum") {
+      throw new AuthenticationError("Admin access required");
+    }
+    const body = req.body as z.infer<typeof grantBetaSchema>;
+    const updated = await UsersModel.setBetaAccess(body.userId, body.grant);
+    if (!updated) throw new NotFoundError("Utente non trovato");
+    res.json({
+      data: {
+        userId: updated.id,
+        beta_access: updated.beta_access,
+        beta_access_granted_at: updated.beta_access_granted_at,
+      },
+    });
   }),
 );

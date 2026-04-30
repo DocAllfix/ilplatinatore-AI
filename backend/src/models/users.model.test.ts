@@ -21,6 +21,8 @@ function makeUser(overrides: Partial<UserRow> = {}): UserRow {
     stripe_customer_id: null,
     stripe_subscription_id: null,
     avatar_url: null,
+    beta_access: false,
+    beta_access_granted_at: null,
     created_at: new Date(),
     last_active: new Date(),
     ...overrides,

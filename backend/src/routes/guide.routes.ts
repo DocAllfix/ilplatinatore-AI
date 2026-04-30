@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { asyncHandler } from "@/utils/asyncHandler.js";
 import { validate } from "@/middleware/validate.js";
-import { optionalAuth } from "@/middleware/auth.middleware.js";
+import { optionalAuth, requireBetaAccess } from "@/middleware/auth.middleware.js";
 import { tierRateLimiter } from "@/middleware/rateLimiter.js";
 import {
   handleGuideRequest,
@@ -45,6 +45,7 @@ const guideStreamQuerySchema = z.object({
 guideRouter.post(
   "/",
   optionalAuth,
+  requireBetaAccess,
   guideTierLimiter,
   validate(guideRequestSchema, "body"),
   asyncHandler(async (req: Request, res: Response) => {
@@ -73,6 +74,7 @@ guideRouter.post(
 guideRouter.get(
   "/stream",
   optionalAuth,
+  requireBetaAccess,
   guideTierLimiter,
   validate(guideStreamQuerySchema, "query"),
   asyncHandler(async (req: Request, res: Response) => {

@@ -74,6 +74,12 @@ const envSchema = z.object({
   // ── Guide Drafts ─────────────────────────────────────────────
   // TTL Redis per stato conversazione bozze (default 30 min)
   DRAFT_TTL_SECONDS: z.coerce.number().int().positive().default(1800),
+  // Beta gating (Sprint 4 final): se true, /api/guide richiede users.beta_access=true.
+  // In dev sempre disabled; abilitare in prod per Beta closed (whitelist).
+  BETA_GATING_ENABLED: z
+    .string()
+    .default("false")
+    .transform((v) => v.toLowerCase() === "true"),
   // Webhook OPZIONALE: notifica admin su nuove bozze HITL.
   // Compatibile con Slack incoming webhook, Discord webhook, n8n, Zapier.
   // Se vuoto → notifiche disabilitate (no-op silenzioso).

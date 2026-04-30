@@ -12,6 +12,8 @@ export interface UserRow {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   avatar_url: string | null;
+  beta_access: boolean;
+  beta_access_granted_at: Date | null;
   created_at: Date;
   last_active: Date;
 }
@@ -27,7 +29,9 @@ export interface UserCreate {
 const USER_COLS = `
   id, email, password_hash, display_name, tier,
   language, total_queries, stripe_customer_id,
-  stripe_subscription_id, avatar_url, created_at, last_active
+  stripe_subscription_id, avatar_url,
+  beta_access, beta_access_granted_at,
+  created_at, last_active
 `;
 
 export const UsersModel = {
@@ -121,6 +125,35 @@ export const UsersModel = {
       return res.rows[0] ?? null;
     } catch (err) {
       logger.error({ err, id }, "UsersModel.updateProfile failed");
+      throw err;
+    }
+  },
+
+  /**
+   * T4-final — Beta gating: abilita/disabilita accesso Beta per un utente.
+   * Usato da admin endpoint per whitelist. beta_access_granted_at popolato
+   * automaticamente al primo grant.
+   */
+  async setBetaAccess(
+    id: number,
+    grant: boolean,
+  ): Promise<UserRow | null> {
+    try {
+      const res = await query<UserRow>(
+        `-- Toggle beta_access; granted_at popolato solo al primo true.
+         UPDATE users
+         SET beta_access = $2,
+             beta_access_granted_at = CASE
+               WHEN $2 = true AND beta_access_granted_at IS NULL THEN NOW()
+               ELSE beta_access_granted_at
+             END
+         WHERE id = $1
+         RETURNING ${USER_COLS}`,
+        [id, grant],
+      );
+      return res.rows[0] ?? null;
+    } catch (err) {
+      logger.error({ err, id, grant }, "UsersModel.setBetaAccess failed");
       throw err;
     }
   },

@@ -91,6 +91,8 @@ function makeUser(avatar: string | null = null) {
     stripe_customer_id: null,
     stripe_subscription_id: null,
     avatar_url: avatar,
+    beta_access: false,
+    beta_access_granted_at: null,
     created_at: new Date(),
     last_active: new Date(),
   };

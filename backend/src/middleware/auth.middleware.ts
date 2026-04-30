@@ -64,6 +64,69 @@ export function requireTier(minTier: Tier): RequestHandler {
   };
 }
 
+// ── requireBetaAccess (Sprint 4 final) ────────────────────────
+// No-op se BETA_GATING_ENABLED=false (dev/staging). In prod (Beta closed),
+// blocca utenti senza beta_access=true. Lookup DB con cache in-memory 60s
+// per non hammerare il DB per ogni request hot-path.
+//
+// Cache strategy: in-memory Map → fail-open su miss. Singola replica
+// (regola CLAUDE.md #11) → cache coerente. Se scali serve Redis cache.
+import { UsersModel } from "@/models/users.model.js";
+
+const BETA_CACHE_TTL_MS = 60_000;
+const betaCache = new Map<number, { allowed: boolean; at: number }>();
+
+function getCachedBetaStatus(userId: number): boolean | null {
+  const entry = betaCache.get(userId);
+  if (!entry) return null;
+  if (Date.now() - entry.at > BETA_CACHE_TTL_MS) {
+    betaCache.delete(userId);
+    return null;
+  }
+  return entry.allowed;
+}
+
+export const requireBetaAccess: RequestHandler = async (req, res, next) => {
+  if (!env.BETA_GATING_ENABLED) {
+    return next();
+  }
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required for Beta access" });
+    return;
+  }
+
+  const userId = req.user.userId;
+  const cached = getCachedBetaStatus(userId);
+  if (cached === true) return next();
+  if (cached === false) {
+    res.status(403).json({
+      error: "Beta access required",
+      message: "Closed Beta — request access via your account page",
+    });
+    return;
+  }
+
+  // Cache MISS → DB lookup (fail-open su error per non bloccare il sistema).
+  try {
+    const user = await UsersModel.findById(userId);
+    const allowed = user?.beta_access === true;
+    betaCache.set(userId, { allowed, at: Date.now() });
+    if (allowed) return next();
+    res.status(403).json({
+      error: "Beta access required",
+      message: "Closed Beta — request access via your account page",
+    });
+  } catch (err) {
+    logger.warn({ err, userId }, "requireBetaAccess: DB error, fail-open");
+    next();
+  }
+};
+
+/** Espose per test: pulisce cache. */
+export function __clearBetaCache(): void {
+  betaCache.clear();
+}
+
 // ── sessionMiddleware ────────────────────────────────────────
 // Cookie separato dal refresh_token. Scopo: tracciare utenti anonimi (free
 // tier pre-login) via `sessions` table. Coesiste con req.user: se c'è JWT
