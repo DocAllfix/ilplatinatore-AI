@@ -36,15 +36,15 @@
 
 ---
 
-## Sprint 3 — Killer Features
+## Sprint 3 — Killer Features ✅ COMPLETATO
 
 | ID | Task | Status |
 |----|------|--------|
-| T3.1 | KF-1 Conversational Memory (chat_sessions + Redis last 10 turn) | ⏳ |
-| T3.2 | KF-3 Game Disambiguation (SSE event + frontend chip) | ⏳ |
-| T3.3 | KF-2 Inline citations (prompt + UI hover) | ⏳ |
-| T3.4 | KF-5 SSE 3-phase streaming (understanding/searching/writing) | ⏳ |
-| T3.5 | KF-4 PSN cross-check post-processing | ⏳ |
+| T3.1 | KF-1 Conversational Memory (Redis 1h TTL, max 5 turn, cross-game reset) | ✅ |
+| T3.2 | KF-3 Game Disambiguation (SSE event + chip selectable + explicitGameId bypass) | ✅ |
+| T3.3 | KF-2 Inline citations [N] (prompt rule + sources enriched) | ✅ |
+| T3.4 | KF-5 SSE 3-phase streaming (understanding/searching/writing) | ✅ |
+| T3.5 | KF-4 PSN cross-check post-processing (regex + batch DB lookup) | ✅ |
 
 ---
 

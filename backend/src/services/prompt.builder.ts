@@ -59,6 +59,13 @@ export interface PromptContext {
   psnOfficial?: PsnOfficial;
   /** Query originale utente — preservata per contesto conversazionale. */
   userQuery: string;
+  /**
+   * T3.1 — KF-1 Conversational Memory. Turn precedenti (max 5) iniettati nel
+   * SYSTEM come "Conversation history:". Permette multi-turn natural ("aggiungi
+   * più dettagli", "e per il trofeo successivo?"). Opzionale: se assente, il
+   * comportamento è identico al pre-T3.1.
+   */
+  previousTurns?: Array<{ role: "user" | "assistant"; text: string }>;
 }
 
 export interface BuiltPrompt {
@@ -561,7 +568,17 @@ function llmLanguageName(language: string): string {
 
 // ── Builder ─────────────────────────────────────────────────────────────────
 
-function buildSystemCore(L: I18nLabels): string {
+// T3.3 — KF-2 Inline citations rule. Aggiunto come 6° rule nel SYSTEM_CORE
+// per istruire il LLM a taggare ogni claim con [N] referente alla FONTE N.
+// Universal English (LLM-side) per uniformità di interpretazione cross-lingua.
+const RULE_INLINE_CITATIONS =
+  "Tag every factual claim or step with inline citations like [1], [2] referring to the corresponding '--- SOURCE N: ... ---' header in the CONTEXT. If a claim cannot be attributed to any source, leave it untagged. Multiple citations: [1][2].";
+
+function buildSystemCore(
+  L: I18nLabels,
+  previousTurns?: PromptContext["previousTurns"],
+): string {
+  const history = formatConversationHistory(previousTurns);
   return `${L.intro}
 
 REGOLE INVARIANTI / INVARIANT RULES:
@@ -569,7 +586,8 @@ REGOLE INVARIANTI / INVARIANT RULES:
 2. ${L.rule_psn_literal}
 3. ${L.rule_no_cheats}
 4. ${L.rule_markdown}
-5. ${L.rule_sources}`;
+5. ${L.rule_sources}
+6. ${RULE_INLINE_CITATIONS}${history}`;
 }
 
 function formatPsnAnchor(a: PsnAnchor | undefined, L: I18nLabels): string {
@@ -597,6 +615,22 @@ function assembleUserContext(ctx: PromptContext, L: I18nLabels): string {
   return L.context_empty;
 }
 
+/**
+ * T3.1 — formatta i turn precedenti come "Conversation history:" prepended
+ * al SYSTEM. Universal English (LLM-side) per uniformità cross-lingua —
+ * il modello capisce comunque, e centralizza la struttura.
+ */
+function formatConversationHistory(
+  previousTurns: PromptContext["previousTurns"],
+): string {
+  if (!previousTurns || previousTurns.length === 0) return "";
+  const lines = previousTurns.map((t) => {
+    const tag = t.role === "user" ? "User" : "Assistant";
+    return `${tag}: ${t.text}`;
+  });
+  return `\n\nConversation history (latest first ${previousTurns.length} turns):\n${lines.join("\n\n")}`;
+}
+
 // ── Template per guide_type ─────────────────────────────────────────────────
 
 function buildTrophy(ctx: PromptContext): BuiltPrompt {
@@ -604,7 +638,7 @@ function buildTrophy(ctx: PromptContext): BuiltPrompt {
   const langName = llmLanguageName(ctx.language);
   const anchor = formatPsnAnchor(ctx.psnAnchor, L);
   const official = formatPsnOfficial(ctx.psnOfficial, L);
-  const system = `${buildSystemCore(L)}
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
 
 ${L.task}: produce a guide for the trophy "${ctx.targetName}" of the game "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -623,7 +657,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildWalkthrough(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L)}
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
 
 ${L.task}: produce a walkthrough for "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -643,7 +677,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildCollectible(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L)}
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
 
 ${L.task}: collectible guide "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -663,7 +697,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildChallenge(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L)}
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
 
 ${L.task}: explain how to complete the challenge "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -683,7 +717,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildPlatinum(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L)}
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
 
 ${L.task}: produce the platinum roadmap for "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.

@@ -66,6 +66,21 @@ describe("buildPrompt — dispatcher guide_type", () => {
     expect(r.system).toContain("Output language: English");
   });
 
+  it("T3.3 — SYSTEM include la rule di inline citations [N] tagging", () => {
+    const r = buildPrompt(baseCtx);
+    expect(r.system).toContain("[1]");
+    expect(r.system).toMatch(/inline citations|cite/i);
+    expect(r.system).toContain("--- SOURCE N:");
+  });
+
+  it("T3.3 — citation rule presente in tutte le 9 lingue (è universal EN)", () => {
+    const langs = ["en", "it", "es", "fr", "de", "pt", "ja", "zh", "ru"];
+    for (const lang of langs) {
+      const r = buildPrompt({ ...baseCtx, language: lang });
+      expect(r.system).toContain("[1]");
+    }
+  });
+
   it("lancia per guide_type non supportato (5 fissi da migration 004)", () => {
     expect(() =>
       buildPrompt({ ...baseCtx, guideType: "boss" as GuideType }),

@@ -127,4 +127,34 @@ export const TrophyLookupService = {
       throw err;
     }
   },
+
+  /**
+   * T3.5 — KF-4 PSN cross-check.
+   * Batch validation: dato un set di psn_trophy_id estratti dal LLM output,
+   * ritorna quali NON esistono nella tabella trophies (anti-hallucination).
+   *
+   * Performance: singola query con IN (...) — O(N) DB lookup, no per-id round-trip.
+   * Empty input → empty output (no DB call).
+   */
+  async findUnverifiedPsnIds(psnTrophyIds: string[]): Promise<string[]> {
+    if (psnTrophyIds.length === 0) return [];
+    // Cap difensivo per evitare query gigantesche se il LLM allucina in massa.
+    const ids = Array.from(new Set(psnTrophyIds)).slice(0, 100);
+    try {
+      const res = await query<{ psn_trophy_id: string }>(
+        `-- Lookup batch dei psn_trophy_id ESISTENTI nella tabella trophies.
+         -- Il caller fa la differenza tra input e output per ottenere gli unverified.
+         SELECT DISTINCT psn_trophy_id
+         FROM trophies
+         WHERE psn_trophy_id = ANY($1::text[])`,
+        [ids],
+      );
+      const found = new Set(res.rows.map((r) => r.psn_trophy_id));
+      return ids.filter((id) => !found.has(id));
+    } catch (err) {
+      logger.error({ err, count: ids.length }, "findUnverifiedPsnIds failed");
+      // Fail-open: meglio non flaggare niente che bloccare la response per un DB error.
+      return [];
+    }
+  },
 };

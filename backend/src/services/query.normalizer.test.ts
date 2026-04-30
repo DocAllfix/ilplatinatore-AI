@@ -6,7 +6,11 @@ vi.mock("@/utils/logger.js", () => ({
 }));
 
 vi.mock("@/models/games.model.js", () => ({
-  GamesModel: { search: vi.fn() },
+  GamesModel: {
+    search: vi.fn(),
+    searchWithScores: vi.fn(),
+    findById: vi.fn(),
+  },
 }));
 
 vi.mock("@/services/trophyLookup.service.js", () => ({
@@ -110,17 +114,19 @@ describe("detectLanguage — Tier 1 multilingua", () => {
 // ── extractGame ────────────────────────────────────────────────────────────
 
 describe("extractGame", () => {
-  it("ritorna il primo match da GamesModel.search", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([mockGame]);
+  it("ritorna il primo match da searchWithScores (top1)", async () => {
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([
+      { game: mockGame, similarity: 0.95 },
+    ]);
 
     const result = await extractGame("elden ring boss fight");
 
-    expect(GamesModel.search).toHaveBeenCalled();
+    expect(GamesModel.searchWithScores).toHaveBeenCalled();
     expect(result).toEqual(mockGame);
   });
 
-  it("ritorna null se GamesModel.search non trova nulla", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([]);
+  it("ritorna null se searchWithScores non trova nulla", async () => {
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([]);
 
     const result = await extractGame("xyzzy unknown game here");
     expect(result).toBeNull();
@@ -129,12 +135,12 @@ describe("extractGame", () => {
   it("ritorna null se la query dopo filtraggio token è vuota", async () => {
     // "come il la" are all filter tokens → empty candidates
     const result = await extractGame("come il la");
-    expect(GamesModel.search).not.toHaveBeenCalled();
+    expect(GamesModel.searchWithScores).not.toHaveBeenCalled();
     expect(result).toBeNull();
   });
 
   it("ritorna null e non lancia su errore DB (degrada graceful)", async () => {
-    vi.mocked(GamesModel.search).mockRejectedValue(new Error("db down"));
+    vi.mocked(GamesModel.searchWithScores).mockRejectedValue(new Error("db down"));
 
     const result = await extractGame("elden ring");
     expect(result).toBeNull();
@@ -142,14 +148,14 @@ describe("extractGame", () => {
 
   it("prova strategie n-gram multiple fino al primo match", async () => {
     // Prima chiamata fallisce (3-gram), seconda fallisce (2-gram), terza ha successo (1-gram)
-    vi.mocked(GamesModel.search)
+    vi.mocked(GamesModel.searchWithScores)
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([mockGame]);
+      .mockResolvedValueOnce([{ game: mockGame, similarity: 0.9 }]);
 
     const result = await extractGame("ring mystic");
     expect(result).toEqual(mockGame);
-    expect(GamesModel.search).toHaveBeenCalledTimes(3);
+    expect(GamesModel.searchWithScores).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -201,7 +207,7 @@ describe("extractTrophy", () => {
 
 describe("normalizeQuery", () => {
   it("path trophy: guideType=trophy, invoca extractTrophy", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([mockGame]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([{ game: mockGame, similarity: 0.9 }]);
     vi.mocked(TrophyLookupService.findTrophyByName).mockResolvedValue(mockTrophy);
 
     const result = await normalizeQuery("how to unlock trophy malenia in elden ring");
@@ -213,7 +219,7 @@ describe("normalizeQuery", () => {
   });
 
   it("path topic keyword: guideType da TOPIC_KEYWORDS, topic valorizzato", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([mockGame]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([{ game: mockGame, similarity: 0.9 }]);
 
     const result = await normalizeQuery("where to find all missable items in elden ring");
 
@@ -223,7 +229,7 @@ describe("normalizeQuery", () => {
   });
 
   it("path platinum keyword: guideType=platinum", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([mockGame]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([{ game: mockGame, similarity: 0.9 }]);
 
     const result = await normalizeQuery("guide for platinum in elden ring");
 
@@ -231,7 +237,7 @@ describe("normalizeQuery", () => {
   });
 
   it("fallback walkthrough quando nessuna keyword riconosciuta", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([]);
 
     const result = await normalizeQuery("elden ring generic question");
 
@@ -241,7 +247,7 @@ describe("normalizeQuery", () => {
   });
 
   it("usa explicitLanguage quando fornita, bypassa detectLanguage", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([]);
 
     const result = await normalizeQuery("how to get trophy", "it");
 
@@ -249,7 +255,7 @@ describe("normalizeQuery", () => {
   });
 
   it("ignora explicitLanguage vuota/whitespace e usa detectLanguage", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([]);
 
     const result = await normalizeQuery("come ottengo il trofeo", "   ");
 
@@ -257,7 +263,7 @@ describe("normalizeQuery", () => {
   });
 
   it("topic=build per keyword build/equipaggiamento", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([]);
 
     const result = await normalizeQuery("best build for elden ring");
 
@@ -266,11 +272,81 @@ describe("normalizeQuery", () => {
   });
 
   it("topic=lore per keyword lore/trama/storia", async () => {
-    vi.mocked(GamesModel.search).mockResolvedValue([]);
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([]);
 
     const result = await normalizeQuery("lore and storia di elden ring");
 
     expect(result.guideType).toBe("walkthrough");
     expect(result.topic).toBe("lore");
+  });
+});
+
+// ── T3.2 — Game disambiguation ─────────────────────────────────────────────
+
+describe("normalizeQuery — T3.2 game disambiguation", () => {
+  const mockGame2 = {
+    ...mockGame,
+    id: 2,
+    title: "Elden Ring Shadow of the Erdtree",
+    slug: "elden-ring-shadow",
+  };
+
+  it("expone gameCandidates quando top1>0.7 AND top2/top1>0.8 (ambigui)", async () => {
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([
+      { game: mockGame, similarity: 0.95 },
+      { game: mockGame2, similarity: 0.85 }, // 0.85/0.95 = 0.89 > 0.8 → ambigui
+    ]);
+
+    const result = await normalizeQuery("elden ring guida");
+
+    expect(result.gameCandidates).toBeDefined();
+    expect(result.gameCandidates).toHaveLength(2);
+    expect(result.gameCandidates![0]).toMatchObject({
+      id: 1, title: "Elden Ring", slug: "elden-ring", similarity: 0.95,
+    });
+    expect(result.game?.id).toBe(1); // top1 viene sempre scelto
+  });
+
+  it("NON espone gameCandidates quando top2 troppo distante da top1", async () => {
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([
+      { game: mockGame, similarity: 0.95 },
+      { game: mockGame2, similarity: 0.4 }, // 0.4/0.95 = 0.42 < 0.8 → non ambigui
+    ]);
+
+    const result = await normalizeQuery("elden ring boss");
+
+    expect(result.gameCandidates).toBeUndefined();
+    expect(result.game?.id).toBe(1);
+  });
+
+  it("NON espone gameCandidates quando solo 1 match (sotto-soglia o unico)", async () => {
+    vi.mocked(GamesModel.searchWithScores).mockResolvedValue([
+      { game: mockGame, similarity: 0.95 },
+    ]);
+
+    const result = await normalizeQuery("elden ring boss");
+
+    expect(result.gameCandidates).toBeUndefined();
+    expect(result.game?.id).toBe(1);
+  });
+
+  it("explicitGameId bypassa extraction e usa findById", async () => {
+    vi.mocked(GamesModel.findById).mockResolvedValue(mockGame);
+
+    const result = await normalizeQuery("malenia trophy", undefined, 1);
+
+    expect(GamesModel.findById).toHaveBeenCalledWith(1);
+    expect(GamesModel.searchWithScores).not.toHaveBeenCalled();
+    expect(result.game).toEqual(mockGame);
+    expect(result.gameCandidates).toBeUndefined();
+  });
+
+  it("explicitGameId inesistente → game=null + warning (no crash)", async () => {
+    vi.mocked(GamesModel.findById).mockResolvedValue(null);
+
+    const result = await normalizeQuery("malenia trophy", undefined, 99999);
+
+    expect(result.game).toBeNull();
+    expect(result.gameCandidates).toBeUndefined();
   });
 });

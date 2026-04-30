@@ -30,9 +30,30 @@ export interface GuideCacheKeyParams {
   language: string;
 }
 
+/**
+ * T3.3 — KF-2 Inline citations: shape estesa con metadata per UI hover.
+ * Tutti i campi POST `title` sono OPZIONALI per backward-compat con
+ * cached entries pre-T3.3 in Redis (parse soft-fail tollerato).
+ *
+ * `index` (1-based) corrisponde al "FONTE N" nel prompt → permette al
+ * frontend di mappare i tag `[N]` nel content alla source corrispondente.
+ */
 export interface CachedGuide {
   content: string;
-  sources: Array<{ url?: string; domain?: string; guideId?: number; title?: string }>;
+  sources: Array<{
+    url?: string;
+    domain?: string;
+    guideId?: number;
+    title?: string;
+    /** Indice 1-based usato come marker [N] nel content. */
+    index?: number;
+    /** 0..1 — affidabilità (RAG verified=1, scraping trusted-domain=0.95, etc.). */
+    reliability?: number;
+    /** Solo per RAG sources: la guide ha verified=true nel DB. */
+    verified?: boolean;
+    /** Solo per RAG sources: vector similarity score (cos sim 0..1). */
+    vectorScore?: number;
+  }>;
   generatedAt: number;
   templateId: string;
   model: string;

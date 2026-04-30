@@ -23,9 +23,15 @@ export interface RetrievalBundle {
 
 function bundleFromResults(results: RagResult[]): RetrievalBundle {
   const context = assembleContext(results);
-  const sources = results.slice(0, 5).map((r) => ({
+  // T3.3 — KF-2 Inline citations: enriched sources con index 1-based,
+  // reliability derivata da verified+qualityScore, vectorScore per UI hover.
+  const sources = results.slice(0, 5).map((r, i) => ({
+    index: i + 1, // 1-based per matching prompt "[1]", "[2]", ...
     guideId: r.guideId,
     title: r.title,
+    reliability: r.verified ? 0.95 : Math.max(0.4, r.qualityScore),
+    verified: r.verified,
+    vectorScore: r.vectorScore,
   }));
   return {
     results,
@@ -92,6 +98,12 @@ export async function enrichWithScraping(
     ...bundle,
     sourceUsed: "scraping",
     scrapingContext: scraped.context,
-    sources: scraped.sources.map((s) => ({ url: s.url, domain: s.domain })),
+    // T3.3 — anche scraping sources includono index e reliability (dal client).
+    sources: scraped.sources.map((s, i) => ({
+      index: i + 1,
+      url: s.url,
+      domain: s.domain,
+      reliability: s.reliability,
+    })),
   };
 }

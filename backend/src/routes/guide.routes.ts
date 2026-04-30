@@ -29,12 +29,16 @@ const guideRequestSchema = z.object({
   query: z.string().trim().min(3).max(500),
   sessionId: z.string().uuid().optional(),
   language: languageField,
+  // T3.2 — disambiguation: l'utente ha cliccato un chip → bypassa extraction.
+  explicitGameId: z.coerce.number().int().positive().optional(),
 });
 
 const guideStreamQuerySchema = z.object({
   query: z.string().trim().min(3).max(500),
   sessionId: z.string().uuid().optional(),
   language: languageField,
+  // T3.2 — anche su SSE il client può forzare il gameId.
+  explicitGameId: z.coerce.number().int().positive().optional(),
 });
 
 // ── POST /api/guide — risposta JSON ────────────────────────────────────────
@@ -50,6 +54,7 @@ guideRouter.post(
       userId: req.user?.userId ?? null,
       sessionId: body.sessionId ?? null,
       ...(body.language && { language: body.language }),
+      ...(body.explicitGameId !== undefined && { explicitGameId: body.explicitGameId }),
     });
     res.json({ data: result });
   }),
@@ -77,6 +82,7 @@ guideRouter.get(
       userId: req.user?.userId ?? null,
       sessionId: q.sessionId ?? null,
       ...(q.language && { language: q.language }),
+      ...(q.explicitGameId !== undefined && { explicitGameId: q.explicitGameId }),
     };
 
     // DUAL-RESPONSE (checklist 6.1 #7): cache HIT → JSON, MISS → SSE.

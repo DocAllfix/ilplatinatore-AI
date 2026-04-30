@@ -15,6 +15,20 @@ import {
   type HandleGuideResult,
 } from "@/services/orchestrator.shared.js";
 import { createDraft } from "@/services/draft.service.js";
+import { validatePsnTrophyIdsInContent } from "@/services/psn.validator.js";
+import {
+  getConversation,
+  appendTurn,
+  clearConversation,
+} from "@/services/conversation.memory.js";
+
+// T3.1 — Conversational identifier: privilegia userId (stabile across sessions),
+// fallback a sessionId per anonymous. Non-empty richiesto altrimenti memory disabled.
+function conversationId(params: HandleGuideParams): string | null {
+  if (params.userId != null) return `user:${params.userId}`;
+  if (params.sessionId) return `session:${params.sessionId}`;
+  return null;
+}
 
 /**
  * Orchestratore Fase 16 — flusso 7-step, ogni step isolato in try/catch con
@@ -36,9 +50,10 @@ export async function handleGuideRequest(
 ): Promise<HandleGuideResult> {
   const start = Date.now();
   // STEP 1 — normalize (soft-fail interno già nei sub-extractor)
+  // T3.2 — explicitGameId bypassa extraction quando l'utente ha già scelto.
   let norm: NormalizedQuery;
   try {
-    norm = await normalizeQuery(params.query, params.language);
+    norm = await normalizeQuery(params.query, params.language, params.explicitGameId);
   } catch (err) {
     logger.error({ err }, "orchestrator STEP 1 (normalize): errore, uso fallback minimo");
     norm = {
@@ -61,6 +76,12 @@ export async function handleGuideRequest(
   if (cached) {
     const elapsedMs = Date.now() - start;
     void logAndTrack(params, norm, "cache", elapsedMs);
+    // T3.1 — anche cache hit popola la memoria conversazionale.
+    const convId = conversationId(params);
+    if (convId) {
+      void appendTurn(convId, "user", params.query, norm.game?.id ?? null);
+      void appendTurn(convId, "assistant", cached.content, norm.game?.id ?? null);
+    }
     return {
       content: cached.content, sources: cached.sources,
       meta: {
@@ -69,6 +90,20 @@ export async function handleGuideRequest(
         sourceUsed: "cache", language: norm.language, elapsedMs, templateId: cached.templateId,
       },
     };
+  }
+
+  // T3.1 — recupera turn precedenti PRIMA del LLM call. Cross-game contamination
+  // → reset automatico della memoria (mai mescolare contesti di giochi diversi).
+  const convId = conversationId(params);
+  let previousTurns: Array<{ role: "user" | "assistant"; text: string }> | undefined;
+  if (convId) {
+    const conv = await getConversation(convId, norm.game?.id ?? null);
+    if (conv.resetSuggested) {
+      logger.info({ convId, gameId: norm.game?.id }, "orchestrator: cross-game reset memory");
+      await clearConversation(convId);
+    } else if (conv.previousTurns.length > 0) {
+      previousTurns = conv.previousTurns.map((t) => ({ role: t.role, text: t.text }));
+    }
   }
 
   // STEP 3 — retrieve (safe-default: bundle vuoto)
@@ -95,7 +130,7 @@ export async function handleGuideRequest(
   let model = "";
   let llmSucceeded = false;
   try {
-    const r = await generateGuide(buildPromptContext(norm, bundle, params.query));
+    const r = await generateGuide(buildPromptContext(norm, bundle, params.query, previousTurns));
     llmContent = r.content;
     templateId = r.templateId;
     model = r.model;
@@ -112,7 +147,22 @@ export async function handleGuideRequest(
   // non viene più chiamato nel flow normale.
   const finalContent = llmContent;
 
-  // STEP 7 — cache + log + tracker (tutti non-fatal)
+  // STEP 6b — T3.5 PSN cross-check (anti-hallucination): estrae i psn_trophy_id
+  // citati dal LLM e ne verifica l'esistenza in tabella trophies. Fail-open:
+  // errore DB → unverifiedIds=[].
+  let unverifiedPsnIds: string[] | undefined;
+  if (llmSucceeded && finalContent) {
+    try {
+      const psnCheck = await validatePsnTrophyIdsInContent(finalContent);
+      if (psnCheck.unverifiedIds.length > 0) {
+        unverifiedPsnIds = psnCheck.unverifiedIds;
+      }
+    } catch (err) {
+      logger.warn({ err }, "orchestrator STEP 6b (PSN cross-check): non-fatal");
+    }
+  }
+
+  // STEP 7 — cache + log + tracker + memory (tutti non-fatal)
   const payload: CachedGuide = {
     content: finalContent, sources: bundle.sources,
     generatedAt: Date.now(), templateId, model,
@@ -121,6 +171,11 @@ export async function handleGuideRequest(
     await GuideCache.set(cacheKey, payload);
   } catch (err) {
     logger.warn({ err }, "orchestrator STEP 7 (cache.set): fallito (non-fatal)");
+  }
+  // T3.1 — salva il turn corrente in memory (fail-open dentro al service).
+  if (convId && llmSucceeded) {
+    void appendTurn(convId, "user", params.query, norm.game?.id ?? null);
+    void appendTurn(convId, "assistant", finalContent, norm.game?.id ?? null);
   }
   const elapsedMs = Date.now() - start;
   void logAndTrack(params, norm, bundle.sourceUsed, elapsedMs);
@@ -161,6 +216,8 @@ export async function handleGuideRequest(
       trophyDetected: norm.trophy?.name_en ?? null, guideType: norm.guideType,
       sourceUsed: bundle.sourceUsed, language: norm.language, elapsedMs, templateId,
       ...(draftId !== undefined && { draftId, canRevise: true, canApprove: false }),
+      ...(unverifiedPsnIds && { unverifiedPsnIds }),
+      ...(norm.gameCandidates && { gameCandidates: norm.gameCandidates }),
     },
   };
 }

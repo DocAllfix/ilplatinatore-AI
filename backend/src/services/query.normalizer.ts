@@ -22,6 +22,14 @@ import type { GuideType } from "@/services/prompt.builder.js";
  * cade su retrieval generico (RagService.search).
  */
 
+export interface GameCandidate {
+  /** Subset di GameRow esposto al client (no metadata interno). */
+  id: number;
+  title: string;
+  slug: string;
+  similarity: number;
+}
+
 export interface NormalizedQuery {
   /** Lingua rilevata dalla query (whitelist ALLOWED_LANGS). Fallback "en". */
   language: string;
@@ -35,6 +43,12 @@ export interface NormalizedQuery {
   guideType: GuideType;
   /** Testo originale, preservato per prompt e logging. */
   rawQuery: string;
+  /**
+   * T3.2 — KF-3 Game disambiguation. Presente solo quando 2+ giochi sono
+   * candidati con similarity comparabile (top1>0.7 AND top2/top1>0.8).
+   * Il frontend mostra chip selectable e re-invia la query con explicitGameId.
+   */
+  gameCandidates?: GameCandidate[];
 }
 
 // ── Stopwords IT/EN per filtro token in extractGame (NON language detection) ─
@@ -119,34 +133,68 @@ const FILTER_TOKENS = new Set([
   "?", "!", ".", ",", ":",
 ]);
 
-export async function extractGame(query: string): Promise<GameRow | null> {
+// T3.2 — KF-3 ambiguity thresholds. Empirici:
+//   - top1 > 0.7: il match top è "buono" (sopra soglia trgm)
+//   - top2 / top1 > 0.8: il secondo è 80%+ del primo → ambiguo
+// Sotto entrambe le soglie, il top1 wins senza disambiguation.
+const AMBIGUITY_TOP1_THRESHOLD = 0.7;
+const AMBIGUITY_RATIO_THRESHOLD = 0.8;
+
+export interface ExtractedGameResult {
+  /** Top match (può essere null se nessun candidato sopra soglia). */
+  top: GameRow | null;
+  /** Lista completa candidati con similarity (vuota se top=null). */
+  candidates: Array<{ game: GameRow; similarity: number }>;
+  /** True se top1 e top2 sono entrambi sopra soglia E ratio sopra soglia. */
+  isAmbiguous: boolean;
+}
+
+export async function extractGameWithCandidates(
+  query: string,
+): Promise<ExtractedGameResult> {
+  const empty: ExtractedGameResult = { top: null, candidates: [], isAmbiguous: false };
   try {
     const tokens = (query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
       .filter((t) => !FILTER_TOKENS.has(t));
-    if (tokens.length === 0) return null;
+    if (tokens.length === 0) return empty;
 
-    // Provo 3 strategie in ordine: 3-gram, 2-gram, 1-gram top.
-    // Esempio: "the last of us" → "last of us", "last of", "last".
-    const candidates: string[] = [];
+    const ngrams: string[] = [];
     for (const size of [3, 2, 1]) {
       for (let i = 0; i + size <= tokens.length; i++) {
         const slice = tokens.slice(i, i + size).join(" ").trim();
-        if (slice.length >= 3) candidates.push(slice);
+        if (slice.length >= 3) ngrams.push(slice);
       }
     }
 
-    for (const c of candidates) {
-      const games = await GamesModel.search(c);
-      if (games.length > 0) {
-        logger.debug({ query, matched: games[0]!.title, via: c }, "extractGame: match");
-        return games[0]!;
-      }
+    for (const c of ngrams) {
+      const candidates = await GamesModel.searchWithScores(c, 5);
+      if (candidates.length === 0) continue;
+
+      const top = candidates[0]!;
+      const second = candidates[1];
+      const isAmbiguous =
+        top.similarity >= AMBIGUITY_TOP1_THRESHOLD &&
+        second !== undefined &&
+        second.similarity >= AMBIGUITY_TOP1_THRESHOLD &&
+        second.similarity / top.similarity >= AMBIGUITY_RATIO_THRESHOLD;
+
+      logger.debug(
+        { query, top: top.game.title, sim: top.similarity, ambiguous: isAmbiguous, via: c },
+        "extractGameWithCandidates: match",
+      );
+      return { top: top.game, candidates, isAmbiguous };
     }
-    return null;
+    return empty;
   } catch (err) {
-    logger.error({ err, query }, "extractGame failed, ritorno null");
-    return null;
+    logger.error({ err, query }, "extractGameWithCandidates failed, ritorno null");
+    return empty;
   }
+}
+
+/** Backward-compat: vecchia signature. Usato dagli altri estrattori. */
+export async function extractGame(query: string): Promise<GameRow | null> {
+  const result = await extractGameWithCandidates(query);
+  return result.top;
 }
 
 // ── Trophy extraction: solo se la query sembra trophy-centric ──────────────
@@ -236,15 +284,39 @@ function extractTopicHint(query: string): TopicHint | null {
  * @param rawQuery testo utente
  * @param explicitLanguage se presente (es. header Accept-Language, UI toggle),
  *                         bypassa detectLanguage — l'utente ha diritto di scelta.
+ * @param explicitGameId T3.2 — bypassa extraction se l'utente ha già scelto
+ *                       il gioco via disambiguation chip.
  */
 export async function normalizeQuery(
   rawQuery: string,
   explicitLanguage?: string,
+  explicitGameId?: number,
 ): Promise<NormalizedQuery> {
   const language = explicitLanguage && explicitLanguage.trim().length > 0
     ? explicitLanguage.trim().toLowerCase()
     : detectLanguage(rawQuery);
-  const game = await extractGame(rawQuery);
+
+  // T3.2 — game extraction con disambiguation awareness.
+  let game: GameRow | null = null;
+  let gameCandidates: GameCandidate[] | undefined;
+  if (explicitGameId !== undefined) {
+    // Bypass extraction: l'utente ha già scelto via chip selectable.
+    game = await GamesModel.findById(explicitGameId);
+    if (!game) {
+      logger.warn({ explicitGameId }, "normalizeQuery: explicitGameId non trovato in DB");
+    }
+  } else {
+    const result = await extractGameWithCandidates(rawQuery);
+    game = result.top;
+    if (result.isAmbiguous) {
+      gameCandidates = result.candidates.slice(0, 3).map((c) => ({
+        id: c.game.id,
+        title: c.game.title,
+        slug: c.game.slug,
+        similarity: c.similarity,
+      }));
+    }
+  }
 
   let trophy: TrophyMatch | null = null;
   let topic: string | null = null;
@@ -268,5 +340,6 @@ export async function normalizeQuery(
     topic,
     guideType,
     rawQuery,
+    ...(gameCandidates && { gameCandidates }),
   };
 }

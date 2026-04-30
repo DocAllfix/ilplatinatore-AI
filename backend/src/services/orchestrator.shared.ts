@@ -24,6 +24,12 @@ export interface HandleGuideParams {
   language?: string;
   userId?: number | null;
   sessionId?: string | null;
+  /**
+   * T3.2 — KF-3 Game disambiguation. Se l'utente ha già selezionato un gioco
+   * via chip dopo un evento `disambiguation`, il client re-invia la stessa
+   * query con explicitGameId → bypassa extraction game e usa quello esatto.
+   */
+  explicitGameId?: number;
 }
 
 export interface HandleGuideResult {
@@ -42,6 +48,13 @@ export interface HandleGuideResult {
     draftId?: string;
     canRevise?: boolean;
     canApprove?: boolean;
+    // T3.5 — PSN cross-check: id citati dal LLM non presenti nella tabella
+    // trophies (possibile hallucination). Frontend può mostrare flag rosso.
+    unverifiedPsnIds?: string[];
+    // T3.2 — Game disambiguation: se la query ha matched 2+ giochi con sim
+    // comparabile, il frontend mostra chip e l'utente sceglie. Il chatbot
+    // SCEGLIE COMUNQUE il top1 ma segnala l'ambiguità nel meta.
+    gameCandidates?: Array<{ id: number; title: string; slug: string; similarity: number }>;
   };
 }
 
@@ -59,6 +72,7 @@ export function buildPromptContext(
   norm: NormalizedQuery,
   bundle: RetrievalBundle,
   query: string,
+  previousTurns?: Array<{ role: "user" | "assistant"; text: string }>,
 ): PromptContext {
   return {
     ragContext: bundle.ragContext,
@@ -70,6 +84,8 @@ export function buildPromptContext(
     // (fallback EN per lingue non whitelisted). Niente più traduzione a valle.
     language: norm.language,
     userQuery: query,
+    // T3.1 — Conversational Memory: turn precedenti opzionali.
+    ...(previousTurns && previousTurns.length > 0 && { previousTurns }),
     ...(norm.trophy && {
       psnAnchor: {
         psn_trophy_id: norm.trophy.psn_trophy_id,

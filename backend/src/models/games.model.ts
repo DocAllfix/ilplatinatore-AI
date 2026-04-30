@@ -129,6 +129,35 @@ export const GamesModel = {
     }
   },
 
+  /**
+   * T3.2 — KF-3 Game disambiguation: come `search` ma espone il similarity
+   * score al chiamante. Permette al normalizzatore di rilevare candidati
+   * "ambigui" (top1 vicino a top2) e chiedere disambiguation all'utente.
+   */
+  async searchWithScores(
+    searchQuery: string,
+    limit = 5,
+  ): Promise<Array<{ game: GameRow; similarity: number }>> {
+    try {
+      const res = await query<GameRow & { sim: number }>(
+        `SELECT ${GAME_COLS}, similarity(title, $1) AS sim
+         FROM games
+         WHERE title ILIKE '%' || $1 || '%'
+            OR slug  ILIKE '%' || $1 || '%'
+         ORDER BY sim DESC
+         LIMIT $2`,
+        [searchQuery, limit],
+      );
+      return res.rows.map((r) => {
+        const { sim, ...game } = r;
+        return { game: game as GameRow, similarity: sim };
+      });
+    } catch (err) {
+      logger.error({ err, searchQuery }, "GamesModel.searchWithScores failed");
+      throw err;
+    }
+  },
+
   async create(data: GameCreate): Promise<GameRow> {
     try {
       const res = await query<GameRow>(
