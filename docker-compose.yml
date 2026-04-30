@@ -12,6 +12,9 @@ networks:
 volumes:
   postgres_data:
   redisdata:
+  # Volume per upload utente (avatar). Necessario perché il container `api`
+  # ha read_only:true; i named volumes bypassano la restrizione del filesystem.
+  uploads_data:
 
 services:
 
@@ -165,6 +168,11 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     read_only: true
+    # Mount persistente per upload utente (avatar). Bypassa read_only:true.
+    # In dev override docker-compose.dev.yml aggiunge altri volumes (./backend/src),
+    # Docker Compose concatena le liste — no conflitto.
+    volumes:
+      - uploads_data:/app/uploads
     # AUDIT FIX (R5): tmpfs con size espliciti
     # Nota: /app/dist è nell'image in produzione — aggiunto come tmpfs solo in docker-compose.dev.yml
     tmpfs:

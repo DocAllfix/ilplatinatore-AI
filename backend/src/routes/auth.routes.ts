@@ -31,6 +31,18 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+// PATCH /me — solo campi che l'utente può modificare autonomamente.
+// email/password/tier/avatar gestiti da endpoint dedicati con flussi separati.
+const updateMeSchema = z
+  .object({
+    displayName: z.string().trim().min(2).max(100).nullable().optional(),
+    language: z.string().trim().min(2).max(10).optional(),
+  })
+  .strict() // rifiuta chiavi sconosciute (anti privilege-escalation tier=platinum, etc.)
+  .refine((d) => d.displayName !== undefined || d.language !== undefined, {
+    message: "Almeno un campo richiesto (displayName, language)",
+  });
+
 // ── Cookie config (AUDIT FIX FF#3 + W-SEC-1) ──────────────────
 const REFRESH_COOKIE = "refresh_token";
 const REFRESH_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -146,6 +158,17 @@ authRouter.post(
   }),
 );
 
+function serializeUser(row: NonNullable<Awaited<ReturnType<typeof UsersModel.findById>>>) {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    tier: row.tier,
+    language: row.language,
+    avatarUrl: row.avatar_url,
+  };
+}
+
 authRouter.get(
   "/me",
   requireAuth,
@@ -154,12 +177,25 @@ authRouter.get(
     const userId = req.user!.userId;
     const row = await UsersModel.findById(userId);
     if (!row) throw new NotFoundError("Utente non trovato");
-    res.json({
-      id: row.id,
-      email: row.email,
-      displayName: row.display_name,
-      tier: row.tier,
-      language: row.language,
-    });
+    res.json(serializeUser(row));
+  }),
+);
+
+authRouter.patch(
+  "/me",
+  requireAuth,
+  validate(updateMeSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.userId;
+    const body = req.body as z.infer<typeof updateMeSchema>;
+    // Mappa naming camelCase frontend → snake_case DB. Solo campi forniti
+    // sono passati al model (undefined != null per evitare wipe accidentali).
+    const update: { display_name?: string | null; language?: string } = {};
+    if (body.displayName !== undefined) update.display_name = body.displayName;
+    if (body.language !== undefined) update.language = body.language;
+
+    const updated = await UsersModel.updateProfile(userId, update);
+    if (!updated) throw new NotFoundError("Utente non trovato");
+    res.json(serializeUser(updated));
   }),
 );

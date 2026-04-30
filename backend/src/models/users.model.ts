@@ -11,6 +11,7 @@ export interface UserRow {
   total_queries: number;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+  avatar_url: string | null;
   created_at: Date;
   last_active: Date;
 }
@@ -26,7 +27,7 @@ export interface UserCreate {
 const USER_COLS = `
   id, email, password_hash, display_name, tier,
   language, total_queries, stripe_customer_id,
-  stripe_subscription_id, created_at, last_active
+  stripe_subscription_id, avatar_url, created_at, last_active
 `;
 
 export const UsersModel = {
@@ -80,6 +81,66 @@ export const UsersModel = {
       return res.rows[0]!;
     } catch (err) {
       logger.error({ err }, "UsersModel.create failed");
+      throw err;
+    }
+  },
+
+  async updateProfile(
+    id: number,
+    data: { display_name?: string | null; language?: string },
+  ): Promise<UserRow | null> {
+    try {
+      // Costruisce SET dinamico solo per campi forniti — evita di sovrascrivere a null
+      // i campi non passati (a differenza di "SET col = COALESCE($1, col)" che soffre
+      // di edge-case con il valore null voluto).
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      let idx = 1;
+      if (data.display_name !== undefined) {
+        fields.push(`display_name = $${idx++}`);
+        values.push(data.display_name);
+      }
+      if (data.language !== undefined) {
+        fields.push(`language = $${idx++}`);
+        values.push(data.language);
+      }
+      if (fields.length === 0) {
+        // Niente da aggiornare → ritorna lo stato corrente (idempotente).
+        return this.findById(id);
+      }
+      values.push(id);
+      const res = await query<UserRow>(
+        `-- Aggiorna campi profilo modificabili dall'utente (display_name, language).
+         -- email/tier/password gestiti da altri endpoint dedicati per separation of concerns.
+         UPDATE users
+         SET ${fields.join(", ")}
+         WHERE id = $${idx}
+         RETURNING ${USER_COLS}`,
+        values,
+      );
+      return res.rows[0] ?? null;
+    } catch (err) {
+      logger.error({ err, id }, "UsersModel.updateProfile failed");
+      throw err;
+    }
+  },
+
+  async updateAvatarUrl(
+    id: number,
+    avatarUrl: string | null,
+  ): Promise<UserRow | null> {
+    try {
+      const res = await query<UserRow>(
+        `-- Aggiorna URL avatar utente. Atomico — ritorna riga aggiornata o null.
+         UPDATE users
+         SET avatar_url = $2
+         WHERE id = $1
+         RETURNING ${USER_COLS}`,
+        [id, avatarUrl],
+      );
+      return res.rows[0] ?? null;
+    } catch (err) {
+      logger.error({ err, id }, "UsersModel.updateAvatarUrl failed");
       throw err;
     }
   },

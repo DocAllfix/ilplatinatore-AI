@@ -16,6 +16,11 @@ export interface RatingWithUser extends RatingRow {
   user_display_name: string | null;
 }
 
+export interface RatingWithGuide extends RatingRow {
+  guide_title: string | null;
+  guide_slug: string | null;
+}
+
 export interface RatingSummary {
   guide_id: number;
   total_ratings: number;  // cast a int in query — pg restituisce bigint come string senza cast
@@ -131,6 +136,48 @@ export const RatingsModel = {
       return res.rows[0] ?? null;
     } catch (err) {
       logger.error({ err, guideId }, "RatingsModel.getSummary failed");
+      throw err;
+    }
+  },
+
+  async findByUser(
+    userId: number,
+    limit = 20,
+    offset = 0,
+  ): Promise<RatingWithGuide[]> {
+    try {
+      const res = await query<RatingWithGuide>(
+        `-- Lista ratings dell'utente con titolo+slug guida (LEFT JOIN: la guida può
+         -- essere stata cancellata, in tal caso guide_title=NULL ma il rating resta).
+         SELECT
+           gr.id, gr.guide_id, gr.user_id, gr.session_id,
+           gr.stars, gr.suggestion, gr.language, gr.created_at,
+           g.title AS guide_title,
+           g.slug  AS guide_slug
+         FROM guide_ratings gr
+         LEFT JOIN guides g ON g.id = gr.guide_id
+         WHERE gr.user_id = $1
+         ORDER BY gr.created_at DESC
+         LIMIT $2 OFFSET $3`,
+        [userId, limit, offset],
+      );
+      return res.rows;
+    } catch (err) {
+      logger.error({ err, userId }, "RatingsModel.findByUser failed");
+      throw err;
+    }
+  },
+
+  async countByUser(userId: number): Promise<number> {
+    try {
+      const res = await query<{ count: string }>(
+        `-- Totale ratings di un utente (per paginazione).
+         SELECT COUNT(*)::text AS count FROM guide_ratings WHERE user_id = $1`,
+        [userId],
+      );
+      return parseInt(res.rows[0]?.count ?? "0", 10);
+    } catch (err) {
+      logger.error({ err, userId }, "RatingsModel.countByUser failed");
       throw err;
     }
   },

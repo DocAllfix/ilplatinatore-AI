@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { resolve } from "node:path";
 import cookieParser from "cookie-parser";
 import express, { type Request, type Response } from "express";
 import helmet from "helmet";
@@ -26,6 +27,20 @@ app.use(cors({ origin: env.CORS_ORIGINS.split(","), credentials: true }));
 app.use(requestLogger);
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
+
+// ── Static (uploads) ─────────────────────────────────────────
+// Servi i file uploadati (es: avatar). Path assoluto risolto da cwd backend.
+// Sicurezza: index:false (no listing dir), dotfiles:deny (no .htaccess).
+// Cache: 7d — cache-busting tramite timestamp nel filename, non serve maxAge breve.
+app.use(
+  "/uploads",
+  express.static(resolve(process.cwd(), "uploads"), {
+    index: false,
+    dotfiles: "deny",
+    maxAge: "7d",
+    fallthrough: false, // 404 dedicato invece di passare al 404 handler globale
+  }),
+);
 
 // ── Routes ───────────────────────────────────────────────────
 app.use(rootRouter);
