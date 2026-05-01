@@ -6,7 +6,7 @@ import { logger } from "@/utils/logger.js";
 export interface EmbeddingInsert {
   chunk_index: number;
   chunk_text: string;
-  embedding: number[]; // 768 floats per text-embedding-004
+  embedding: number[]; // 768 floats — gemini-embedding-001 truncated MRL
 }
 
 /**
@@ -63,7 +63,7 @@ export const EmbeddingsModel = {
   ): Promise<number> {
     if (items.length === 0) return 0;
     const language = options.language ?? "en";
-    const embeddingModel = options.embeddingModel ?? "text-embedding-004";
+    const embeddingModel = options.embeddingModel ?? "gemini-embedding-001";
     try {
       // T1.6 — colonne ora 7: aggiungiamo language, embedding_model, chunk_hash.
       // ON CONFLICT (guide_id, chunk_hash, embedding_model) DO NOTHING garantisce

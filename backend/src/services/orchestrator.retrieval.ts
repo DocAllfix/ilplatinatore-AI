@@ -1,6 +1,10 @@
 import { RagService, type RagResult } from "@/services/rag.service.js";
 import { assembleContext } from "@/services/rag.fusion.js";
 import { fetchScrapedContext } from "@/services/scraper.client.js";
+import { OnDemandHarvestService } from "@/services/onDemandHarvest.service.js";
+import { GuidesModel } from "@/models/guides.model.js";
+import { env } from "@/config/env.js";
+import { logger } from "@/utils/logger.js";
 import type { NormalizedQuery } from "@/services/query.normalizer.js";
 import type { CachedGuide } from "@/services/guide.cache.js";
 
@@ -106,4 +110,106 @@ export async function enrichWithScraping(
       reliability: s.reliability,
     })),
   };
+}
+
+export interface OnDemandHarvestEvent {
+  phase: "started" | "completed" | "timeout" | "failed";
+  requestId: number;
+  guideId?: number;
+  message?: string;
+}
+
+/**
+ * Fase 25 — On-Demand Live Harvesting fallback (FEATURE-FLAGGED).
+ *
+ * Pre-condizioni per attivarsi:
+ *   1. `env.ON_DEMAND_HARVEST_ENABLED === true`
+ *   2. bundle.sourceUsed === 'none' (RAG vuoto E scraping vuoto)
+ *
+ * Se attivato:
+ *   - Inserisce richiesta pending in `on_demand_requests`
+ *   - Yield evento 'started' al caller (per SSE)
+ *   - Polla DB con backoff finché completed/failed/timeout
+ *   - Se completed: fetch guide e arricchisce bundle con context vero
+ *   - Se non completed: bundle invariato + evento timeout/failed
+ *
+ * Il caller (stream.ts) usa questa funzione come AsyncGenerator per intercalare
+ * eventi SSE durante il polling.
+ */
+export async function* enrichWithOnDemandHarvest(
+  bundle: RetrievalBundle,
+  query: string,
+  userId: number | null,
+  gameId: number | null = null,
+): AsyncGenerator<OnDemandHarvestEvent, RetrievalBundle, void> {
+  if (!env.ON_DEMAND_HARVEST_ENABLED) return bundle;
+  if (bundle.sourceUsed !== "none") return bundle;
+  if (!query.trim()) return bundle;
+
+  let requestId: number;
+  try {
+    requestId = await OnDemandHarvestService.triggerHarvest(query, userId, gameId);
+  } catch (err) {
+    logger.warn({ err }, "on-demand: triggerHarvest fallito, skip");
+    return bundle;
+  }
+  yield { phase: "started", requestId };
+
+  let result: Awaited<ReturnType<typeof OnDemandHarvestService.pollRequest>>;
+  try {
+    result = await OnDemandHarvestService.pollRequest(requestId);
+  } catch (err) {
+    logger.warn({ err, requestId }, "on-demand: pollRequest fallito");
+    yield { phase: "failed", requestId, message: "polling error" };
+    return bundle;
+  }
+
+  if (result.status === "completed" && result.guideId) {
+    try {
+      const guide = await GuidesModel.findById(result.guideId);
+      if (guide && guide.content) {
+        const enriched: RetrievalBundle = {
+          ...bundle,
+          sourceUsed: "rag",
+          ragContext: assembleContext([
+            {
+              guideId: guide.id,
+              title: guide.title,
+              slug: guide.slug,
+              chunkText: guide.content,
+              vectorScore: 0.9,
+              ftsScore: 0,
+              rrfScore: 0.9,
+              matchType: "exact",
+              qualityScore: guide.quality_score ?? 0.5,
+              verified: guide.verified,
+              language: guide.language,
+              guideType: guide.guide_type ?? "trophy",
+            } satisfies RagResult,
+          ]),
+          sources: [
+            {
+              index: 1,
+              guideId: guide.id,
+              title: guide.title,
+              reliability: guide.verified ? 0.95 : 0.7,
+              verified: guide.verified,
+            },
+          ],
+        };
+        yield { phase: "completed", requestId, guideId: result.guideId };
+        return enriched;
+      }
+    } catch (err) {
+      logger.warn({ err, guideId: result.guideId }, "on-demand: fetch guide fallito");
+    }
+  }
+
+  const phase = result.status === "timeout" ? "timeout" : "failed";
+  yield {
+    phase,
+    requestId,
+    ...(result.errorMessage ? { message: result.errorMessage } : {}),
+  };
+  return bundle;
 }

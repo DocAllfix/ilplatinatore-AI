@@ -86,6 +86,17 @@ const envSchema = z.object({
   ADMIN_WEBHOOK_URL: z.string().default(""),
   ADMIN_DASHBOARD_URL: z.string().default(""),
 
+  // On-Demand Live Harvesting (Fase 25): trigger live harvest quando RAG fallisce.
+  // Default OFF per zero rischio regressione: l'utente lo attiva esplicitamente
+  // dopo aver verificato che l'harvester worker singleton è running.
+  ON_DEMAND_HARVEST_ENABLED: z
+    .string()
+    .default("false")
+    .transform((v) => v.toLowerCase() === "true"),
+  // Timeout client-side dopo cui l'orchestrator emette `ondemand_timeout`
+  // e prosegue con fallback RAG normale. Worker job timeout DEVE essere inferiore.
+  ON_DEMAND_HARVEST_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
+
   // ── Rate Limits ─────────────────────────────────────────────
   RATE_LIMIT_FREE_DAILY: z.coerce.number().int().positive().default(3),
   RATE_LIMIT_FREE_REGISTERED_DAILY: z.coerce.number().int().positive().default(5),

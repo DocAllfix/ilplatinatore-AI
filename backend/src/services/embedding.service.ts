@@ -14,8 +14,19 @@ const MIN_GUIDE_CHARS = 50;
 const CACHE_TTL_SECONDS = 86_400; // 24h
 
 // T1.6 — modello esposto come costante per idempotency (chunk_hash + model uniq).
-// Migrazione futura a text-embedding-005 = nuova costante + nuovi embedding paralleli.
-const EMBEDDING_MODEL = "text-embedding-004";
+// Migrazione futura a un modello successivo = nuova costante + nuovi embedding paralleli.
+//
+// FIX 2026-05-01 — `text-embedding-004` è stato rimosso da Generative Language API v1beta
+// (404 Not Found su embedContent). Migrato a `gemini-embedding-001`, allineato all'harvester
+// Python (vedi harvester/src/injector/embedder.py:_MODEL).
+//
+// `gemini-embedding-001` ritorna 3072-dim di default (Matryoshka Representation Learning).
+// La colonna `guide_embeddings.embedding` è VECTOR(768) — tronchiamo al prefix-768 e
+// L2-normalizziamo, pattern documentato per MRL truncation. Cosine distance pgvector
+// resta scale-invariant ma manteniamo norma unitaria per consistency con embedding
+// prodotti server-side dall'harvester (output_dimensionality=768 SDK Python).
+const EMBEDDING_MODEL = "gemini-embedding-001";
+const EMBEDDING_DIM = 768;
 
 const genAI = new GoogleGenerativeAI(env.GOOGLE_EMBEDDING_API_KEY);
 const embedModel = genAI.getGenerativeModel({ model: EMBEDDING_MODEL });
@@ -24,16 +35,28 @@ function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
+function truncateAndNormalize(values: number[], dim: number): number[] {
+  const truncated = values.length > dim ? values.slice(0, dim) : values;
+  let sumSq = 0;
+  for (const v of truncated) sumSq += v * v;
+  const norm = Math.sqrt(sumSq);
+  if (norm === 0) return truncated;
+  const result = new Array<number>(truncated.length);
+  for (let i = 0; i < truncated.length; i++) result[i] = truncated[i]! / norm;
+  return result;
+}
+
 export const EmbeddingService = {
   /**
-   * Genera un embedding 768d via text-embedding-004.
-   * Cache Redis 24h su sha256(text). Ritorna null su errore API (contract esplicito).
+   * Genera un embedding 768d via gemini-embedding-001 (MRL truncated + L2-normalized).
+   * Cache Redis 24h su modello+sha256(text). Ritorna null su errore API (contract esplicito).
    */
   async generateEmbedding(text: string): Promise<number[] | null> {
     const input = text.length > MAX_INPUT_CHARS
       ? text.slice(0, MAX_INPUT_CHARS)
       : text;
-    const cacheKey = `embed:${sha256(input)}`;
+    // Cache key include il modello: cambiando modello, niente collisioni con cache vecchia.
+    const cacheKey = `embed:${EMBEDDING_MODEL}:${sha256(input)}`;
 
     try {
       const cached = await redis.get(cacheKey);
@@ -48,10 +71,12 @@ export const EmbeddingService = {
     const start = performance.now();
     try {
       const result = await embedModel.embedContent(input);
-      const embedding = result.embedding.values;
+      const raw = result.embedding.values;
+      // gemini-embedding-001 ritorna 3072-dim → truncate prefix-768 + L2-normalize.
+      const embedding = truncateAndNormalize(raw, EMBEDDING_DIM);
       const ms = Math.round(performance.now() - start);
       logger.info(
-        { length: input.length, dims: embedding.length, ms, cacheHit: false },
+        { length: input.length, rawDims: raw.length, dims: embedding.length, ms, cacheHit: false },
         "Embedding generato via Gemini",
       );
 

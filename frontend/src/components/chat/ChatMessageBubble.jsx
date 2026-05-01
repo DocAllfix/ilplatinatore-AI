@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import RatingWidget from "./RatingWidget";
 import GuideRenderer from "./GuideRenderer";
 import ErrorReportModal from "./ErrorReportModal";
+import OnDemandIndicator from "./OnDemandIndicator";
 import { AlertTriangle, Brain, Search, Pencil, ShieldAlert, Star } from "lucide-react";
 import { useGamificationContext } from "../../context/GamificationContext";
 
@@ -187,6 +188,9 @@ export default function ChatMessageBubble({ message, sessionId, onPickGameCandid
           qualityScore={message.qualityScore}
           routeToHitl={message.routeToHitl}
         />
+
+        {/* Fase 25 — On-Demand Live Harvesting indicator (FEATURE-FLAGGED backend). */}
+        <OnDemandIndicator onDemand={message.onDemand} />
 
         {/* Content body */}
         {message.guide ? (

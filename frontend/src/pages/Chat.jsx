@@ -141,6 +141,11 @@ export default function Chat() {
                 bubbleMeta = { ...bubbleMeta, ...data, finished: true };
                 upsertBubble((m) => ({ ...m, ...data, finished: true }));
                 break;
+              case "ondemand":
+                // Fase 25 — Live harvest: started/completed/timeout/failed.
+                bubbleMeta = { ...bubbleMeta, onDemand: data };
+                upsertBubble((m) => ({ ...m, onDemand: data }));
+                break;
               case "error":
                 upsertBubble((m) => ({
                   ...m,

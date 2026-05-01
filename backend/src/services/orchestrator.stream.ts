@@ -5,6 +5,7 @@ import { generateGuideStream } from "@/services/llm.service.js";
 import {
   retrieveContext,
   enrichWithScraping,
+  enrichWithOnDemandHarvest,
   type RetrievalBundle,
 } from "@/services/orchestrator.retrieval.js";
 import {
@@ -50,7 +51,8 @@ export type StreamEventType =
   | "meta"
   | "delta"
   | "done"
-  | "error";
+  | "error"
+  | "ondemand";
 
 export interface StreamEvent {
   type: StreamEventType;
@@ -135,6 +137,26 @@ export async function* handleGuideStream(
       } catch (err) {
         logger.warn({ err }, "stream STEP 4 (scraping): fallito");
       }
+    }
+
+    // ── STEP 4b — Fase 25 On-Demand Live Harvesting (FEATURE-FLAGGED) ──
+    // Si attiva SOLO se ON_DEMAND_HARVEST_ENABLED=true E bundle.sourceUsed='none'.
+    // Default flag=false → questo blocco è no-op in dev/prod fino ad attivazione esplicita.
+    try {
+      const gen = enrichWithOnDemandHarvest(
+        bundle,
+        params.query,
+        params.userId ?? null,
+        norm.game?.id ?? null,
+      );
+      let next = await gen.next();
+      while (!next.done) {
+        yield { type: "ondemand", data: next.value };
+        next = await gen.next();
+      }
+      bundle = next.value;
+    } catch (err) {
+      logger.warn({ err }, "stream STEP 4b (on-demand): fallito non-fatal");
     }
 
     // T3.4 — stage 2: "searching" → l'utente vede le fonti consultate.

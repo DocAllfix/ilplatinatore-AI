@@ -22,6 +22,8 @@ export function useGuide() {
   const [disambiguation, setDisambiguation] = useState(null); // { chosen, candidates[] }
   const [meta, setMeta] = useState(null); // {sourceUsed, gameDetected, ...}
   const [doneInfo, setDoneInfo] = useState(null); // {qualityScore, unverifiedPsnIds, draftId, ...}
+  // Fase 25 On-Demand Live Harvesting: tracker eventi (started/completed/timeout/failed).
+  const [onDemand, setOnDemand] = useState(null); // { phase, requestId, guideId?, message? }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -31,6 +33,7 @@ export function useGuide() {
     setDisambiguation(null);
     setMeta(null);
     setDoneInfo(null);
+    setOnDemand(null);
     setError(null);
   }, []);
 
@@ -65,6 +68,10 @@ export function useGuide() {
                 break;
               case "done":
                 setDoneInfo(data);
+                break;
+              case "ondemand":
+                // Fase 25: started -> spinner; completed/timeout/failed -> toast finale.
+                setOnDemand(data);
                 break;
               case "error":
                 setError(new Error(data?.message ?? "Errore stream"));
@@ -116,6 +123,7 @@ export function useGuide() {
     disambiguation,
     meta,
     doneInfo,
+    onDemand,
     loading,
     error,
     // derived (convenience)

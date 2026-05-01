@@ -15,7 +15,7 @@ async function embeddingProcessor(job: Job<EmbedJobData>): Promise<void> {
 export function startEmbeddingWorker(): Worker<EmbedJobData> {
   // AUDIT FIX (Fatal Flaw #4 + R6): concurrency + limiter + cleanup automatico.
   //  - concurrency=2 → max 2 job concorrenti (non satura PgBouncer pool).
-  //  - limiter max=20/sec → ben sotto i 25 RPS (1500 RPM) di text-embedding-004.
+  //  - limiter max=20/sec → ben sotto i 25 RPS (1500 RPM) di gemini-embedding-001.
   //  - removeOnComplete/Fail → cleanup automatico, Redis non si gonfia.
   // NOTA: `limiter.groupKey` è una feature BullMQ Pro. Nella OSS v5 il limiter è
   //   PER-WORKER. Con 1 worker + 1 replica (regola #11 CLAUDE.md) siamo comunque
