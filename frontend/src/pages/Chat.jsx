@@ -58,7 +58,7 @@ export default function Chat() {
     return () => window.removeEventListener("platinatore_prefill", checkPrefill);
   }, []);
 
-  const handleSend = async (text) => {
+  const handleSend = async (text, opts = {}) => {
     let sessionId = currentSessionId;
     if (!sessionId) {
       sessionId = createSession();
@@ -72,7 +72,6 @@ export default function Chat() {
       [sessionId]: [...(prev[sessionId] || []), userMsg],
     }));
 
-    // Update session title from first message
     if ((messages[sessionId] || []).length === 0) {
       setSessions((prev) =>
         prev.map((s) =>
@@ -86,66 +85,89 @@ export default function Chat() {
     setLoading(true);
 
     const aiId = "msg_" + Date.now();
-    // La bolla AI viene aggiunta al primo chunk — finché non arriva niente
-    // mostriamo solo il LoadingIndicator. Questo evita la bolla vuota sovrapposta.
     let bubbleAdded = false;
+    // Mutable closure per accumulare meta + done info da emettere nella bubble.
+    // originalQuery preservato per il chip handler T3.2 (re-invio con explicitGameId).
+    let bubbleMeta = { originalQuery: text };
+
+    const upsertBubble = (patcher) => {
+      setMessages((prev) => {
+        const msgs = prev[sessionId] || [];
+        if (!bubbleAdded) {
+          bubbleAdded = true;
+          setLoading(false);
+          const m = patcher({ id: aiId, role: "assistant", content: "", ...bubbleMeta });
+          return { ...prev, [sessionId]: [...msgs, m] };
+        }
+        return {
+          ...prev,
+          [sessionId]: msgs.map((m) => (m.id === aiId ? patcher(m) : m)),
+        };
+      });
+    };
 
     try {
       await api.guideStream(
-        text,
-        "it",
-        (chunk) => {
-          if (!bubbleAdded) {
-            bubbleAdded = true;
-            setLoading(false);
-            setMessages((prev) => ({
-              ...prev,
-              [sessionId]: [
-                ...(prev[sessionId] || []),
-                { id: aiId, role: "assistant", content: chunk },
-              ],
-            }));
-          } else {
-            setMessages((prev) => {
-              const msgs = prev[sessionId] || [];
-              return {
-                ...prev,
-                [sessionId]: msgs.map((m) =>
-                  m.id === aiId ? { ...m, content: m.content + chunk } : m
-                ),
-              };
-            });
-          }
+        {
+          query: text,
+          language: "it",
+          ...(opts.explicitGameId !== undefined && { explicitGameId: opts.explicitGameId }),
         },
-        () => {
-          // Garantisce setLoading(false) anche se onChunk non è mai stato chiamato
-          setLoading(false);
-          setGuidesUsed((prev) => prev + 1);
+        {
+          onEvent: ({ type, data }) => {
+            switch (type) {
+              case "stage":
+                // T3.4 — Indicatore di progresso 3 fasi (understanding/searching/writing).
+                bubbleMeta = { ...bubbleMeta, stage: data };
+                upsertBubble((m) => ({ ...m, stage: data }));
+                break;
+              case "disambiguation":
+                // T3.2 — chip selectable: l'utente vede i candidati game ambigui.
+                bubbleMeta = { ...bubbleMeta, disambiguation: data };
+                upsertBubble((m) => ({ ...m, disambiguation: data }));
+                break;
+              case "meta":
+                // sourceUsed, gameDetected, language, etc.
+                bubbleMeta = { ...bubbleMeta, ...data };
+                upsertBubble((m) => ({ ...m, ...data }));
+                break;
+              case "delta":
+                if (data?.text) {
+                  upsertBubble((m) => ({ ...m, content: (m.content ?? "") + data.text }));
+                }
+                break;
+              case "done":
+                // T3.5 unverifiedPsnIds, T4.1 qualityScore/routeToHitl, HITL draftId
+                bubbleMeta = { ...bubbleMeta, ...data, finished: true };
+                upsertBubble((m) => ({ ...m, ...data, finished: true }));
+                break;
+              case "error":
+                upsertBubble((m) => ({
+                  ...m,
+                  content: m.content || data?.message || "Errore stream.",
+                  errored: true,
+                }));
+                break;
+              default:
+                break;
+            }
+          },
+          onDone: () => {
+            setLoading(false);
+            setGuidesUsed((prev) => prev + 1);
+          },
         },
       );
     } catch (err) {
       const errText = err?.data?.error || "Errore nella generazione della guida. Riprova.";
-      if (bubbleAdded) {
-        setMessages((prev) => {
-          const msgs = prev[sessionId] || [];
-          return {
-            ...prev,
-            [sessionId]: msgs.map((m) =>
-              m.id === aiId ? { ...m, content: errText } : m
-            ),
-          };
-        });
-      } else {
-        setMessages((prev) => ({
-          ...prev,
-          [sessionId]: [
-            ...(prev[sessionId] || []),
-            { id: aiId, role: "assistant", content: errText },
-          ],
-        }));
-      }
+      upsertBubble((m) => ({ ...m, content: errText, errored: true }));
       setLoading(false);
     }
+  };
+
+  // T3.2 — handler per chip disambiguation: ri-invia con explicitGameId.
+  const pickGameCandidate = (gameId, originalQuery) => {
+    handleSend(originalQuery, { explicitGameId: gameId });
   };
 
   return (
@@ -225,7 +247,12 @@ export default function Chat() {
           )}
 
           {currentMessages.map((msg) => (
-            <ChatMessageBubble key={msg.id} message={msg} sessionId={currentSessionId} />
+            <ChatMessageBubble
+              key={msg.id}
+              message={msg}
+              sessionId={currentSessionId}
+              onPickGameCandidate={pickGameCandidate}
+            />
           ))}
 
           {loading && <LoadingIndicator />}

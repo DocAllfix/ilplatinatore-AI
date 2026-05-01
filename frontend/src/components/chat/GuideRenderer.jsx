@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useContext } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useGamificationContext } from "../../context/GamificationContext";
 import { CheckCircle2, Search, ExternalLink, MessageCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";

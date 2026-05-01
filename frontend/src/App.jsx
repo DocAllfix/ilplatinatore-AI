@@ -10,6 +10,7 @@ import AppLayout from './components/layout/AppLayout';
 import { GamificationProvider } from './context/GamificationContext';
 import ChatLayout from './components/layout/ChatLayout';
 import ProtectedRoute from './components/ProtectedRoute';
+import BetaGate from './components/BetaGate';
 import { Navigate } from 'react-router-dom';
 import Landing from './pages/Landing';
 import Chat from './pages/Chat';
@@ -21,6 +22,8 @@ import Community from './pages/Community';
 import ProfileSettings from './pages/ProfileSettings';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import BetaWaitlist from './pages/BetaWaitlist';
+import AdminDrafts from './pages/AdminDrafts';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -44,23 +47,30 @@ const AuthenticatedApp = () => {
 
   return (
     <Routes>
-      <Route element={<ChatLayout />}>
-        <Route path="/" element={<Chat />} />
-        <Route path="/chat" element={<Chat />} />
-        <Route path="/giochi" element={<Games />} />
-        <Route path="/community" element={<Community />} />
-        {/* Pagine protette: redirect a /login se non autenticato */}
-        <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
-          <Route path="/profilo" element={<Profile />} />
-          <Route path="/impostazioni" element={<ProfileSettings />} />
+      {/* B5 — BetaGate: utenti loggati senza beta_access vengono redirezionati. */}
+      <Route element={<BetaGate />}>
+        <Route element={<ChatLayout />}>
+          <Route path="/" element={<Chat />} />
+          <Route path="/chat" element={<Chat />} />
+          <Route path="/giochi" element={<Games />} />
+          <Route path="/community" element={<Community />} />
+          {/* Pagine protette: redirect a /login se non autenticato */}
+          <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
+            <Route path="/profilo" element={<Profile />} />
+            <Route path="/impostazioni" element={<ProfileSettings />} />
+            {/* D — Admin HITL drafts (gating tier=platinum interno alla page) */}
+            <Route path="/admin/drafts" element={<AdminDrafts />} />
+          </Route>
         </Route>
       </Route>
+      {/* Pagine senza BetaGate: landing, login, register, waitlist */}
       <Route element={<AppLayout />}>
         <Route path="/landing" element={<Landing />} />
         <Route path="/prezzi" element={<Pricing />} />
         <Route path="/chi-siamo" element={<About />} />
         <Route path="/login" element={<Login />} />
         <Route path="/registrati" element={<Register />} />
+        <Route path="/beta-waitlist" element={<BetaWaitlist />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

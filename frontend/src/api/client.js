@@ -130,8 +130,56 @@ export const api = {
 
   delete: (endpoint) => request(endpoint, { method: "DELETE" }).then(parseOrThrow),
 
-  // SSE streaming: fetch con ReadableStream, UN refresh al massimo su 401 pre-stream.
-  guideStream: async (query, language, onChunk, onDone) => {
+  // Multipart POST (file upload). NON aggiunge Content-Type: il browser
+  // lo setta automaticamente con il boundary corretto.
+  postMultipart: async (endpoint, formData) => {
+    const url = `${API_BASE}${endpoint}`;
+    const send = async () => {
+      const headers = {};
+      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+      if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+      return fetch(url, {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: formData,
+      });
+    };
+    let response = await send();
+    if (response.status === 401 && accessToken) {
+      const ok = await doRefresh();
+      if (ok) response = await send();
+    }
+    return parseOrThrow(response);
+  },
+
+  // SSE streaming Sprint 3+ (T3.4 stage events + T3.2 disambiguation):
+  //
+  // Signature ESTESA — accetta sia legacy (onChunk con raw text) che strutturata:
+  //   guideStream({query, language, explicitGameId?}, {
+  //     onEvent: ({type, data}) => void,  // 'stage'|'disambiguation'|'meta'|'delta'|'done'|'error'
+  //     onDone:  () => void,
+  //     onChunk?: (text) => void,         // legacy fallback: chiamato solo per delta
+  //   })
+  //
+  // Backward-compat: se invocato con (query, language, onChunk, onDone) — vecchio stile —
+  // funziona ancora: ogni delta evento → onChunk(text), altri eventi ignorati.
+  guideStream: async (...args) => {
+    let params, callbacks;
+    if (typeof args[0] === "string") {
+      // Legacy signature: (query, language, onChunk, onDone)
+      params = { query: args[0], language: args[1] };
+      callbacks = {
+        onChunk: args[2],
+        onDone: args[3],
+        onEvent: null,
+      };
+    } else {
+      // New signature: ({query, language, ...}, {onEvent, onDone, onChunk?})
+      params = args[0];
+      callbacks = args[1] ?? {};
+    }
+
     const open = async () => {
       const headers = {
         "Content-Type": "application/json",
@@ -139,11 +187,16 @@ export const api = {
       };
       if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
       if (csrfToken) headers["X-CSRF-Token"] = csrfToken;
+      const body = {
+        query: params.query,
+        ...(params.language && { language: params.language }),
+        ...(params.explicitGameId !== undefined && { explicitGameId: params.explicitGameId }),
+      };
       return fetch(`${API_BASE}/api/guide/stream`, {
         method: "POST",
         credentials: "include",
         headers,
-        body: JSON.stringify({ query, language }),
+        body: JSON.stringify(body),
       });
     };
 
@@ -163,20 +216,57 @@ export const api = {
       throw err;
     }
 
+    // Parser SSE: buffer accumulator + split su "\n\n" (record separator).
+    // Ogni record contiene linee tipo "event: X" + "data: <json>". Default
+    // event type quando assente è "message".
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
+
+    const dispatch = (rawRecord) => {
+      const lines = rawRecord.split("\n");
+      let eventType = "message";
+      let dataStr = "";
+      for (const line of lines) {
+        if (line.startsWith("event:")) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataStr += (dataStr ? "\n" : "") + line.slice(5).trim();
+        }
+      }
+      if (!dataStr) return;
+      let data;
+      try {
+        data = JSON.parse(dataStr);
+      } catch {
+        // Non-JSON data: passa raw string (fallback)
+        data = dataStr;
+      }
+      // Strutturato: chiama onEvent
+      if (callbacks.onEvent) callbacks.onEvent({ type: eventType, data });
+      // Legacy: chiama onChunk solo per delta (text aggregation backward-compat)
+      if (callbacks.onChunk && eventType === "delta" && data?.text) {
+        callbacks.onChunk(data.text);
+      }
+    };
+
     try {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        if (chunk) onChunk(chunk);
+        buffer += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const record = buffer.slice(0, idx);
+          buffer = buffer.slice(idx + 2);
+          if (record.trim()) dispatch(record);
+        }
       }
-      const tail = decoder.decode();
-      if (tail) onChunk(tail);
+      buffer += decoder.decode();
+      if (buffer.trim()) dispatch(buffer);
     } finally {
       reader.releaseLock();
     }
-    onDone?.();
+    callbacks.onDone?.();
   },
 };

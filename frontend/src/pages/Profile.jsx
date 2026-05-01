@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
-import { User, Star, Calendar, Settings, LogOut, Bell, Globe, CheckCircle2, Lock, ArrowLeft } from "lucide-react";
+import { Star, Calendar, Settings, LogOut, Bell, Globe, CheckCircle2, Lock, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ export default function Profile() {
 
   const { data: ratings = [] } = useQuery({
     queryKey: ["my-ratings"],
-    queryFn: () => listGuideRatings("-created_date", 20),
+    queryFn: () => listGuideRatings({ limit: 20 }),
   });
 
   const xpInLevel = xp - level.min;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Zap, Flame, Trophy, Star, ChevronRight } from "lucide-react";
+import { X, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const STEPS = [

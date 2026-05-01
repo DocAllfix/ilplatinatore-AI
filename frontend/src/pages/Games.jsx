@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { Trophy, Target, BookOpen, Star, ArrowLeft, Circle, Heart, Clock, Zap, Search, ChevronDown } from "lucide-react";
+import { Trophy, Target, Star, ArrowLeft, Circle, Heart, Clock, Zap, Search, ChevronDown } from "lucide-react";
 import { motion } from "framer-motion";
 import { useFavorites } from "../hooks/useFavorites";
 import TrophyHelpPopover from "../components/games/TrophyHelpPopover";

@@ -40,12 +40,12 @@ export default function ProfileSettings() {
   const handleChange = (field, value) => setForm((f) => ({ ...f, [field]: value }));
 
   const handleSave = async () => {
+    // Backend Zod schema strict accetta SOLO {displayName?, language?}.
+    // Gli altri campi (username/birth_date/platform/notifications) sono UI-only
+    // o gestiti da endpoint dedicati (es. avatar via /api/uploads/avatar).
+    // L'avatar viene salvato automaticamente al completamento dell'upload.
     await patchMe({
-      avatar_url: avatarUrl,
-      username: form.username,
-      birth_date: form.birth_date,
-      platform: form.platform,
-      notifications: form.notifications,
+      displayName: form.full_name,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { X, AlertTriangle, Send, CheckCircle } from "lucide-react";
 
 export default function ErrorReportModal({ onClose }) {

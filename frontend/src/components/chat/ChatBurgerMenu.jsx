@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X, Plus, MessageSquare, Trophy, BookOpen, ExternalLink, ChevronRight, ChevronDown, History, Heart, Trash2 } from "lucide-react";
+import { X, Plus, MessageSquare, Trophy, BookOpen, ExternalLink, ChevronDown, History, Heart, Trash2 } from "lucide-react";
 import { useFavorites } from "../../hooks/useFavorites";
 import { useSearchHistory } from "../../hooks/useSearchHistory";
 
