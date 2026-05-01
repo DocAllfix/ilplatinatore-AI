@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 
 from src.config.db import close_pool, fetch_one, init_pool
 from src.config.logger import get_logger
@@ -165,4 +166,7 @@ async def _main() -> None:
 
 
 if __name__ == "__main__":
+    # Windows fix: psycopg async non supporta ProactorEventLoop (default Python 3.8+).
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(_main())

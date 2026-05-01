@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import signal
+import sys
 from typing import Any
 
 import psycopg
@@ -320,4 +321,8 @@ async def _run() -> None:
 
 
 if __name__ == "__main__":
+    # Windows fix: psycopg async non supporta ProactorEventLoop (default Python 3.8+).
+    # Su Windows la policy va impostata a SelectorEventLoop PRIMA di asyncio.run().
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(_run())
