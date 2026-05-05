@@ -15,5 +15,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --only=production
 COPY --from=builder /app/dist ./dist
+# Copia script migrazione sorgente + cartella migrations SQL
+COPY scripts ./scripts
+COPY migrations ./migrations
 EXPOSE 3000
-CMD ["node", "dist/index.js"]
+CMD ["sh", "-c", "node_modules/.bin/tsx scripts/run-migrations.ts && node dist/index.js"]
