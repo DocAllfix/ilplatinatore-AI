@@ -45,6 +45,7 @@
     "passport-local": "^1.0.0",
     "pg": "^8.13.1",
     "pino": "^9.6.0",
+    "tsx": "^4.19.2",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -71,7 +72,6 @@
     "prettier": "^3.4.2",
     "supertest": "^7.2.2",
     "tsc-alias": "^1.8.10",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^3.0.4"
   }
