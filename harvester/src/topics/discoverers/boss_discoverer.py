@@ -79,25 +79,34 @@ class BossDiscoverer:
         return names
 
     async def _discover_fandom(self, slug: str) -> list[tuple[str, str]]:
-        url = f"https://{slug}.fandom.com/wiki/Category:Bosses"
-        html = await fetch_html(url)
-        if not html:
-            return []
-        return self._parse_fandom(html)
+        """Usa MediaWiki API invece dello scraping HTML (bypassa Cloudflare)."""
+        import json as _json
 
-    @staticmethod
-    def _parse_fandom(html: str) -> list[tuple[str, str]]:
-        soup = BeautifulSoup(html, "html.parser")
-        # Fandom Category page: <a class="category-page__member-link" href="/wiki/Boss" title="Boss">Boss</a>
-        anchors = soup.select("a.category-page__member-link")
+        base = f"https://{slug}.fandom.com/api.php"
+        params = (
+            "?action=query&list=categorymembers"
+            "&cmtitle=Category:Bosses&cmlimit=500"
+            "&cmnamespace=0&format=json&formatversion=2"
+        )
+        body = await fetch_html(base + params, timeout=10.0)
+        if not body:
+            return []
+        try:
+            data = _json.loads(body)
+        except (ValueError, TypeError):
+            return []
+
+        members = data.get("query", {}).get("categorymembers", [])
         names = []
-        seen = set()
-        for a in anchors:
-            text = a.get_text(strip=True)
-            if not text or len(text) > 80 or len(text) < 3:
+        seen: set[str] = set()
+        for m in members:
+            title = (m.get("title") or "").strip()
+            if ":" in title:
+                title = title.split(":", 1)[1]
+            if not title or len(title) < 3 or len(title) > 80:
                 continue
-            if text in seen:
+            if title in {"Bosses"} or title in seen:
                 continue
-            seen.add(text)
-            names.append((text, "fandom"))
+            seen.add(title)
+            names.append((title, "fandom"))
         return names

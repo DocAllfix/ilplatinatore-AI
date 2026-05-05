@@ -9,11 +9,15 @@ from src.config.logger import get_logger
 logger = get_logger(__name__)
 
 _DEFAULT_HEADERS = {
+    # Browser-like UA obbligatorio per Fandom (Cloudflare) e Reddit.
+    # UA bot-style (Il-Platinatore-AI/1.0) viene bloccato con 403/timeout.
     "User-Agent": (
-        "Il-Platinatore-AI/1.0 (+https://ilplatinatore.it; topic-mapper) "
-        "Python/httpx"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
