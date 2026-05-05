@@ -131,12 +131,13 @@ export async function* handleGuideStream(
       logger.error({ err }, "stream STEP 3 (retrieve): fallito");
       bundle = { results: [], sourceUsed: "none", ragContext: "", scrapingContext: "", sources: [] };
     }
-    if (norm.game) {
-      try {
-        bundle = await enrichWithScraping(bundle, norm.game.title, params.query);
-      } catch (err) {
-        logger.warn({ err }, "stream STEP 4 (scraping): fallito");
-      }
+    try {
+      // Usa il titolo rilevato se disponibile, altrimenti la query grezza come fallback.
+      // Consente a Tavily di attivarsi anche quando il gioco non è nel DB locale.
+      const scrapingTitle = norm.game?.title ?? params.query;
+      bundle = await enrichWithScraping(bundle, scrapingTitle, params.query);
+    } catch (err) {
+      logger.warn({ err }, "stream STEP 4 (scraping): fallito");
     }
 
     // ── STEP 4b — Fase 25 On-Demand Live Harvesting (FEATURE-FLAGGED) ──
