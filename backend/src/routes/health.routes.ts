@@ -9,6 +9,14 @@ const { version } = require("../../package.json") as { version: string };
 
 export const healthRouter = Router();
 
+healthRouter.post(
+  "/flush-cache",
+  asyncHandler(async (_req, res) => {
+    await redis.flushdb();
+    res.json({ ok: true, message: "Redis cache svuotata" });
+  }),
+);
+
 healthRouter.get(
   "/",
   asyncHandler(async (_req, res) => {
