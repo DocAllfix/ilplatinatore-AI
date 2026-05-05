@@ -72,13 +72,37 @@ export async function* handleGuideStream(
   const start = Date.now();
   try {
     // ── STEP 1 — normalize ──────────────────────────────────────────────
-    const norm = await normalizeQuery(params.query, params.language, params.explicitGameId);
-    const cacheKey = buildCacheKeyParams(norm);
-
-    // T3.1 — Conversational Memory: recupera turn precedenti, gestisce
-    // cross-game contamination con reset automatico.
+    // T3.1 — Conversational Memory: recupera PRIMA i turn precedenti così
+    // possiamo ereditare il gameId dal turno precedente se la query corrente
+    // non identifica un gioco (es. "dimmi di più sul primo trofeo").
     const convId = conversationId(params);
     let previousTurns: Array<{ role: "user" | "assistant"; text: string }> | undefined;
+    let inheritedGameId: number | null = null;
+
+    if (convId) {
+      const convPre = await getConversation(convId, null);
+      if (convPre.previousTurns.length > 0) {
+        // Eredita gameId dall'ultimo turno che ne aveva uno.
+        const lastWithGame = [...convPre.previousTurns].reverse().find((t) => t.gameId !== null);
+        if (lastWithGame?.gameId) inheritedGameId = lastWithGame.gameId;
+      }
+    }
+
+    const norm = await normalizeQuery(params.query, params.language, params.explicitGameId);
+
+    // Se la query corrente non ha identificato un gioco ma la memoria ne ha uno,
+    // eredita il gioco dal contesto conversazionale.
+    if (!norm.game && inheritedGameId) {
+      const { GamesModel } = await import("@/models/games.model.js");
+      const inheritedGame = await GamesModel.findById(inheritedGameId);
+      if (inheritedGame) {
+        norm.game = inheritedGame;
+        logger.info({ gameId: inheritedGameId, title: inheritedGame.title }, "stream: game ereditato dalla memoria conversazionale");
+      }
+    }
+
+    const cacheKey = buildCacheKeyParams(norm);
+
     if (convId) {
       const conv = await getConversation(convId, norm.game?.id ?? null);
       if (conv.resetSuggested) {

@@ -28,6 +28,8 @@ export interface GuideCacheKeyParams {
   topic: string | null;
   guideType: GuideType;
   language: string;
+  /** Query raw utente — usata come fallback key quando gameSlug è null. */
+  rawQuery?: string;
 }
 
 /**
@@ -74,12 +76,13 @@ export function slugify(s: string): string {
 }
 
 export function computeKey(p: GuideCacheKeyParams): string {
-  const gameSlug = p.gameSlug && p.gameSlug.trim().length > 0 ? slugify(p.gameSlug) : "unknown";
-  // Precedenza: trophy_slug → topic → guide_type (per evitare collisioni su NULL).
+  const gameSlug = p.gameSlug && p.gameSlug.trim().length > 0 ? slugify(p.gameSlug) : null;
+  // Quando il gioco non è identificato, usa hash della query raw per evitare collisioni.
+  const gameKey = gameSlug ?? (p.rawQuery ? slugify(p.rawQuery).slice(0, 40) : "unknown");
   const target = p.trophySlug ?? p.topic ?? p.guideType;
   const targetSlug = slugify(target);
   const lang = slugify(p.language) || "en";
-  return `guide:${gameSlug}:${targetSlug}:${lang}`;
+  return `guide:${gameKey}:${targetSlug}:${lang}`;
 }
 
 export const GuideCache = {

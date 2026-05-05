@@ -70,6 +70,7 @@ export function buildCacheKeyParams(norm: NormalizedQuery): GuideCacheKeyParams 
     topic: norm.topic,
     guideType: norm.guideType,
     language: norm.language,
+    rawQuery: norm.rawQuery,
   };
 }
 
