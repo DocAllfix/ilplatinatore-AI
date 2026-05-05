@@ -568,12 +568,6 @@ function llmLanguageName(language: string): string {
 
 // ── Builder ─────────────────────────────────────────────────────────────────
 
-// T3.3 — KF-2 Inline citations rule. Aggiunto come 6° rule nel SYSTEM_CORE
-// per istruire il LLM a taggare ogni claim con [N] referente alla FONTE N.
-// Universal English (LLM-side) per uniformità di interpretazione cross-lingua.
-const RULE_INLINE_CITATIONS =
-  "Tag every factual claim or step with inline citations like [1], [2] referring to the corresponding '--- SOURCE N: ... ---' header in the CONTEXT. If a claim cannot be attributed to any source, leave it untagged. Multiple citations: [1][2].";
-
 function buildSystemCore(
   L: I18nLabels,
   previousTurns?: PromptContext["previousTurns"],
@@ -586,8 +580,7 @@ REGOLE INVARIANTI / INVARIANT RULES:
 2. ${L.rule_psn_literal}
 3. ${L.rule_no_cheats}
 4. ${L.rule_markdown}
-5. ${L.rule_sources}
-6. ${RULE_INLINE_CITATIONS}${history}`;
+5. Do NOT include inline citations like [1], [2] in the text. Do NOT include a sources/fonti section at the end.${history}`;
 }
 
 function formatPsnAnchor(a: PsnAnchor | undefined, L: I18nLabels): string {
