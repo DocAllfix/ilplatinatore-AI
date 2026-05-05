@@ -97,6 +97,11 @@ export const GuideCache = {
   },
 
   async set(params: GuideCacheKeyParams, value: CachedGuide): Promise<void> {
+    // Non cachare risposte negative — evita di servire "Non ho informazioni" per 24h.
+    if (!value.content || value.content.includes("Non ho informazioni")) {
+      logger.info({ key: computeKey(params) }, "GuideCache.set: skip cache per risposta negativa");
+      return;
+    }
     const key = computeKey(params);
     try {
       await redis.setex(key, env.GUIDE_CACHE_TTL_SECONDS, JSON.stringify(value));
