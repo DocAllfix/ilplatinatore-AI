@@ -30,6 +30,9 @@ const mockGame = {
   genre: [] as string[],
   cover_url: null,
   metadata: {} as Record<string, unknown>,
+  igdb_id: null,
+  steam_appid: null,
+  auto_created: false,
   created_at: new Date(),
   updated_at: new Date(),
 };

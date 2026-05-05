@@ -10,6 +10,11 @@ export interface GameRow {
   genre: string[];
   cover_url: string | null;
   metadata: Record<string, unknown>;
+  // Migration 022/023: aggiunto igdb_id e steam_appid per dedup e lookup O(log n).
+  igdb_id: number | null;
+  steam_appid: number | null;
+  // Migration 034: flag giochi auto-creati durante ingestione bozze.
+  auto_created: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -22,6 +27,8 @@ export interface GameCreate {
   genre?: string[];
   cover_url?: string | null;
   metadata?: Record<string, unknown>;
+  igdb_id?: number | null;
+  auto_created?: boolean;
 }
 
 export interface GameUpdate {
@@ -36,7 +43,8 @@ export interface GameUpdate {
 
 const GAME_COLS = `
   id, title, slug, platform, release_date,
-  genre, cover_url, metadata, created_at, updated_at
+  genre, cover_url, metadata, igdb_id, steam_appid, auto_created,
+  created_at, updated_at
 `;
 
 // Whitelist colonne aggiornabili — nomi colonna sono costanti sviluppatore, non input utente.
@@ -161,10 +169,19 @@ export const GamesModel = {
   async create(data: GameCreate): Promise<GameRow> {
     try {
       const res = await query<GameRow>(
-        `-- Inserisce nuovo gioco; slug deve essere univoco (constraint DB).
+        `-- Inserisce nuovo gioco con upsert idempotente su igdb_id.
+         -- ON CONFLICT (igdb_id) WHERE igdb_id IS NOT NULL: gestisce race-condition
+         -- quando due admin ingestionano in parallelo lo stesso gioco IGDB.
+         -- Per igdb_id = NULL (fallback minimo) il conflitto non si applica.
          INSERT INTO games (
-           title, slug, platform, release_date, genre, cover_url, metadata
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+           title, slug, platform, release_date, genre, cover_url, metadata,
+           igdb_id, auto_created
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         ON CONFLICT (igdb_id) WHERE igdb_id IS NOT NULL
+         DO UPDATE SET
+           title      = EXCLUDED.title,
+           cover_url  = COALESCE(EXCLUDED.cover_url, games.cover_url),
+           updated_at = NOW()
          RETURNING ${GAME_COLS}`,
         [
           data.title,
@@ -174,11 +191,29 @@ export const GamesModel = {
           data.genre ?? [],
           data.cover_url ?? null,
           data.metadata ?? {},
+          data.igdb_id ?? null,
+          data.auto_created ?? false,
         ],
       );
       return res.rows[0]!;
     } catch (err) {
       logger.error({ err }, "GamesModel.create failed");
+      throw err;
+    }
+  },
+
+  async findByIgdbId(igdbId: number): Promise<GameRow | null> {
+    try {
+      const res = await query<GameRow>(
+        `-- Recupera gioco per IGDB ID (indice parziale WHERE igdb_id IS NOT NULL).
+         SELECT ${GAME_COLS}
+         FROM games
+         WHERE igdb_id = $1`,
+        [igdbId],
+      );
+      return res.rows[0] ?? null;
+    } catch (err) {
+      logger.error({ err, igdbId }, "GamesModel.findByIgdbId failed");
       throw err;
     }
   },

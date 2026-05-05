@@ -40,13 +40,19 @@ vi.mock("@/services/guide.cache.js", () => ({
       .slice(0, 120),
 }));
 
+vi.mock("@/services/gameEnrichment.service.js", () => ({
+  resolveOrCreateGame: vi.fn(),
+}));
+
 import { GuideDraftsModel } from "@/models/guideDrafts.model.js";
 import { GuidesModel } from "@/models/guides.model.js";
 import { enqueueLiveEmbedding } from "@/queues/embedding.queue.js";
+import { resolveOrCreateGame } from "@/services/gameEnrichment.service.js";
 
 const mockDraftsModel = vi.mocked(GuideDraftsModel);
 const mockGuidesModel = vi.mocked(GuidesModel);
 const mockEnqueue = vi.mocked(enqueueLiveEmbedding);
+const mockResolveOrCreate = vi.mocked(resolveOrCreateGame);
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -117,11 +123,32 @@ function makeGuideRow(overrides = {}) {
   };
 }
 
+function makeGameRow(overrides = {}) {
+  return {
+    id: 77,
+    title: "Elden Ring",
+    slug: "elden-ring",
+    platform: ["PS5"],
+    release_date: new Date(),
+    genre: [],
+    cover_url: null,
+    metadata: {},
+    igdb_id: null,
+    steam_appid: null,
+    auto_created: true,
+    created_at: new Date(),
+    updated_at: new Date(),
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockDraftsModel.markPublished.mockResolvedValue(makeDraft({ status: "published" }) as never);
   mockDraftsModel.markFailed.mockResolvedValue(makeDraft({ status: "failed" }) as never);
   mockEnqueue.mockResolvedValue(undefined);
+  // Default: resolveOrCreateGame risolve con game id=77 (usato dai test auto-risoluzione)
+  mockResolveOrCreate.mockResolvedValue({ game: makeGameRow() as never, source: "minimal" });
 });
 
 // ── validateDraft ─────────────────────────────────────────────────────────────
@@ -241,9 +268,13 @@ describe("ingestApprovedDraft", () => {
   });
 
   it("chiama markFailed e lancia ValidationError su validazione fallita", async () => {
+    // Contenuto troppo corto + game_id=null: resolveOrCreateGame viene chiamato ma
+    // dopo di esso rimangono errori Layer 1/2 (contenuto corto) → markFailed
     mockDraftsModel.findById.mockResolvedValueOnce(
       makeDraft({ content: "troppo corto", game_id: null }) as never,
     );
+    // resolveOrCreateGame riesce a collegare un game_id
+    mockResolveOrCreate.mockResolvedValueOnce({ game: makeGameRow() as never, source: "minimal" });
 
     await expect(ingestApprovedDraft(DRAFT_ID)).rejects.toThrow(ValidationError);
     expect(mockDraftsModel.markFailed).toHaveBeenCalledOnce();
@@ -271,5 +302,40 @@ describe("ingestApprovedDraft", () => {
     // Deve risolvere senza lanciare — la guida esiste ma il link è broken
     await expect(ingestApprovedDraft(DRAFT_ID)).resolves.toBeDefined();
     expect(mockEnqueue).toHaveBeenCalled();
+  });
+
+  // ── Auto-risoluzione game_id ───────────────────────────────────────────────
+
+  it("auto-risoluzione: chiama resolveOrCreateGame se game_id è null, poi ingesta", async () => {
+    const draftNoGame = makeDraft({ game_id: null });
+    mockDraftsModel.findById.mockResolvedValueOnce(draftNoGame as never);
+    mockResolveOrCreate.mockResolvedValueOnce({ game: makeGameRow({ id: 77 }) as never, source: "igdb" });
+    mockGuidesModel.create.mockResolvedValueOnce(makeGuideRow({ game_id: 77 }) as never);
+
+    const guide = await ingestApprovedDraft(DRAFT_ID);
+
+    expect(mockResolveOrCreate).toHaveBeenCalledWith(DRAFT_ID, "Elden Ring");
+    expect(guide).toBeDefined();
+    expect(mockGuidesModel.create).toHaveBeenCalledWith(expect.objectContaining({ game_id: 77 }));
+  });
+
+  it("auto-risoluzione: se resolveOrCreateGame lancia, prosegue e markFailed al Layer 3", async () => {
+    const draftNoGame = makeDraft({ game_id: null });
+    mockDraftsModel.findById.mockResolvedValueOnce(draftNoGame as never);
+    mockResolveOrCreate.mockRejectedValueOnce(new Error("IGDB down"));
+
+    await expect(ingestApprovedDraft(DRAFT_ID)).rejects.toThrow(ValidationError);
+    expect(mockDraftsModel.markFailed).toHaveBeenCalled();
+    const errors = mockDraftsModel.markFailed.mock.calls[0]![1];
+    expect(errors.some((e) => e.layer === 3)).toBe(true);
+  });
+
+  it("auto-risoluzione: draft con game_id popolato NON chiama resolveOrCreateGame", async () => {
+    mockDraftsModel.findById.mockResolvedValueOnce(makeDraft({ game_id: 1 }) as never);
+    mockGuidesModel.create.mockResolvedValueOnce(makeGuideRow() as never);
+
+    await ingestApprovedDraft(DRAFT_ID);
+
+    expect(mockResolveOrCreate).not.toHaveBeenCalled();
   });
 });

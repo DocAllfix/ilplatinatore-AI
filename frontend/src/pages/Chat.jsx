@@ -31,7 +31,8 @@ export default function Chat() {
   }, [currentMessages, loading]);
 
   const createSession = () => {
-    const id = "session_" + Date.now();
+    // UUID v4 richiesto dal backend (Zod: z.string().uuid()) per la conversational memory.
+    const id = crypto.randomUUID();
     const newSession = { id, title: "Nuova conversazione", gameDetected: null };
     setSessions((prev) => [newSession, ...prev]);
     setCurrentSessionId(id);
@@ -111,6 +112,9 @@ export default function Chat() {
         {
           query: text,
           language: "it",
+          // T3.1 — sessionId UUID passato al backend per la conversational memory.
+          // Il backend usa Redis conv:<sessionId> TTL 1h, max 5 turn.
+          sessionId,
           ...(opts.explicitGameId !== undefined && { explicitGameId: opts.explicitGameId }),
         },
         {
@@ -130,6 +134,16 @@ export default function Chat() {
                 // sourceUsed, gameDetected, language, etc.
                 bubbleMeta = { ...bubbleMeta, ...data };
                 upsertBubble((m) => ({ ...m, ...data }));
+                // Rinomina la sessione con il gioco rilevato (solo al primo meta con gameDetected).
+                if (data?.gameDetected) {
+                  setSessions((prev) =>
+                    prev.map((s) =>
+                      s.id === sessionId && s.title === "Nuova conversazione"
+                        ? { ...s, title: data.gameDetected, gameDetected: data.gameDetected }
+                        : s
+                    )
+                  );
+                }
                 break;
               case "delta":
                 if (data?.text) {

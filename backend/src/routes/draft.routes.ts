@@ -3,7 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "@/utils/asyncHandler.js";
 import { validate } from "@/middleware/validate.js";
 import { optionalAuth, requireAuth } from "@/middleware/auth.middleware.js";
-import { NotFoundError } from "@/utils/errors.js";
+import { NotFoundError, ValidationError } from "@/utils/errors.js";
 import {
   getDraft,
   reviseDraft,
@@ -164,6 +164,28 @@ draftRouter.post(
     // reason is logged for audit; service currently does not store it separately
     const draft = await rejectDraft(id);
     res.json({ data: draft });
+  }),
+);
+
+// ── POST /api/draft/:id/link-game — admin collega manualmente un gioco ───────
+const linkGameSchema = z.object({ game_id: z.number().int().positive() });
+
+draftRouter.post(
+  "/:id/link-game",
+  requireAuth,
+  validate(linkGameSchema, "body"),
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = parseUuidOrThrow(req.params.id as string);
+    const { game_id } = req.body as z.infer<typeof linkGameSchema>;
+    const draft = await getDraft(id);
+    if (!["pending_approval", "approved"].includes(draft.status)) {
+      throw new ValidationError(
+        "Solo bozze in stato pending_approval o approved supportano link-game.",
+      );
+    }
+    const linked = await GuideDraftsModel.linkGame(id, game_id);
+    if (!linked) throw new ValidationError("Bozza ha già un game_id collegato.");
+    res.json({ data: linked });
   }),
 );
 

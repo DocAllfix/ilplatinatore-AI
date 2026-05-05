@@ -24,6 +24,10 @@ const envSchema = z.object({
   SERPAPI_KEY: z.string().default(""),
   // Tavily Search API — web fallback per scraping (Fase 23)
   TAVILY_API_KEY: z.string().default(""),
+  // IGDB (via Twitch OAuth2) — opzionale: se assente, fallback minimal game creation.
+  // Stessi nomi dell'harvester Python → stesso .env funziona per entrambi i processi.
+  IGDB_CLIENT_ID: z.string().default(""),
+  IGDB_CLIENT_SECRET: z.string().default(""),
 
   // ── WordPress ───────────────────────────────────────────────
   WP_API_URL: z.string().url(),

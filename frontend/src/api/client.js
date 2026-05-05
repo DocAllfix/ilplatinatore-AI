@@ -190,6 +190,7 @@ export const api = {
       const body = {
         query: params.query,
         ...(params.language && { language: params.language }),
+        ...(params.sessionId && { sessionId: params.sessionId }),
         ...(params.explicitGameId !== undefined && { explicitGameId: params.explicitGameId }),
       };
       return fetch(`${API_BASE}/api/guide/stream`, {

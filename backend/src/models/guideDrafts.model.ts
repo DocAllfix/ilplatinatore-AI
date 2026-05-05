@@ -334,6 +334,26 @@ export const GuideDraftsModel = {
     }
   },
 
+  async linkGame(id: string, gameId: number): Promise<GuideDraftRow | null> {
+    try {
+      const res = await query<GuideDraftRow>(
+        `-- Collega retroattivamente un game_id a una bozza con game_id NULL.
+         -- Usato dall'ingestion service quando auto-crea un gioco mancante
+         -- e dall'endpoint /link-game per collegamento manuale admin.
+         -- WHERE game_id IS NULL: guard atomico, non sovrascrive draft già collegati.
+         UPDATE guide_drafts
+         SET game_id = $1, updated_at = NOW()
+         WHERE id = $2 AND game_id IS NULL
+         RETURNING ${DRAFT_COLS}`,
+        [gameId, id],
+      );
+      return res.rows[0] ?? null;
+    } catch (err) {
+      logger.error({ err, id, gameId }, "GuideDraftsModel.linkGame failed");
+      throw err;
+    }
+  },
+
   async getPendingApproval(
     limit = 20,
     offset = 0,

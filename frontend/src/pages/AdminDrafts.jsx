@@ -33,6 +33,79 @@ import { useAuth } from "@/hooks/useAuth";
  *   POST /api/draft/:id/ingest
  */
 
+// ── GameLinkWidget ────────────────────────────────────────────────────────────
+function GameLinkWidget({ draftId, onLinked }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const [widgetError, setWidgetError] = useState(null);
+
+  const search = async () => {
+    if (!q.trim()) return;
+    setSearching(true);
+    setWidgetError(null);
+    try {
+      const r = await api.get(`/api/games?search=${encodeURIComponent(q.trim())}&limit=5`);
+      setResults(r?.data ?? []);
+    } catch (err) {
+      setWidgetError(err?.data?.error || err.message || "Errore ricerca giochi");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const link = async (gameId) => {
+    setLinking(true);
+    setWidgetError(null);
+    try {
+      await api.post(`/api/draft/${encodeURIComponent(draftId)}/link-game`, { game_id: gameId });
+      onLinked();
+    } catch (err) {
+      setWidgetError(err?.data?.error || err.message || "Errore collegamento gioco");
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {widgetError && (
+        <p className="text-[10px] text-rose-400">{widgetError}</p>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+          placeholder="Cerca gioco nel DB..."
+          className="flex-1 text-xs bg-muted border border-border rounded px-2 py-1.5 text-foreground"
+          disabled={searching || linking}
+        />
+        <button
+          onClick={search}
+          disabled={searching || linking || !q.trim()}
+          className="text-xs px-2 py-1 rounded border border-primary/30 bg-primary/10 text-primary disabled:opacity-50"
+        >
+          {searching ? "..." : "Cerca"}
+        </button>
+      </div>
+      {results.map((g) => (
+        <div key={g.id} className="flex justify-between items-center text-xs gap-2">
+          <span className="text-foreground truncate">{g.title}</span>
+          <button
+            onClick={() => link(g.id)}
+            disabled={linking}
+            className="shrink-0 text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 disabled:opacity-50"
+          >
+            Collega
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const STATUS_COLORS = {
   draft: "bg-slate-500/10 text-slate-400 border-slate-500/20",
   revision: "bg-blue-500/10 text-blue-400 border-blue-500/20",
@@ -229,9 +302,12 @@ export default function AdminDrafts() {
                 <div className="text-sm font-medium text-foreground truncate">
                   {d.title ?? d.original_query ?? `draft #${d.id.slice(0, 8)}`}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {d.guide_type ?? "?"} · {d.language ?? "?"} · iter{" "}
-                  {d.iteration_count ?? 0} · {new Date(d.created_at).toLocaleString("it-IT")}
+                <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>{d.guide_type ?? "?"} · {d.language ?? "?"} · iter {d.iteration_count ?? 0} · {new Date(d.created_at).toLocaleString("it-IT")}</span>
+                  {d.game_id
+                    ? <span className="text-emerald-400 text-[10px]">gioco ✓</span>
+                    : <span className="text-amber-400 text-[10px]">⚠ no game</span>
+                  }
                 </div>
               </div>
               <span className={`text-[10px] px-2 py-0.5 rounded border shrink-0 ${STATUS_COLORS[d.status]}`}>
@@ -300,6 +376,23 @@ export default function AdminDrafts() {
                     </ul>
                   </div>
                 )}
+              </div>
+
+              {/* Game linkage panel */}
+              <div className="px-5 py-3 border-t border-white/5 shrink-0">
+                <p className="text-xs text-muted-foreground mb-1">Gioco</p>
+                {selected.game_id
+                  ? <p className="text-xs text-emerald-400">ID {selected.game_id} collegato ✓</p>
+                  : <>
+                      <p className="text-xs text-amber-400 mb-2">
+                        Non collegato — verrà auto-creato all&apos;ingest. Oppure collega ora:
+                      </p>
+                      <GameLinkWidget
+                        draftId={selected.id}
+                        onLinked={() => openDraft(selected.id)}
+                      />
+                    </>
+                }
               </div>
 
               <div className="px-5 py-3 border-t border-primary/20 space-y-3 shrink-0">

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import { AnimatePresence, motion } from "framer-motion";
 import RatingWidget from "./RatingWidget";
@@ -114,51 +114,87 @@ function UnverifiedPsnAlert({ unverifiedPsnIds }) {
   );
 }
 
-function SourcesList({ sources }) {
+function SourcesList({ sources, sourcesRef }) {
   if (!sources?.length) return null;
   return (
-    <div className="mt-3 pt-3 border-t border-white/5">
+    <div ref={sourcesRef} className="mt-3 pt-3 border-t border-white/5">
       <p className="text-xs text-muted-foreground/80 mb-1.5">Fonti</p>
       <ol className="text-xs space-y-1">
-        {sources.map((s, i) => (
-          <li key={i} className="flex items-baseline gap-2">
-            <span className="text-secondary font-mono shrink-0">[{s.index ?? i + 1}]</span>
-            {s.url ? (
-              <a
-                href={s.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-secondary hover:underline truncate"
-                title={s.url}
-              >
-                {s.domain ?? s.url}
-              </a>
-            ) : (
-              <span className="text-muted-foreground truncate">
-                {s.title ?? `Guide #${s.guideId ?? "?"}`}
-              </span>
-            )}
-            {s.verified && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                verified
-              </span>
-            )}
-            {s.reliability != null && !s.verified && (
-              <span className="text-[10px] text-muted-foreground/60">
-                {Math.round(s.reliability * 100)}%
-              </span>
-            )}
-          </li>
-        ))}
+        {sources.map((s, i) => {
+          const idx = s.index ?? i + 1;
+          return (
+            <li key={i} id={`source-${idx}`} className="flex items-baseline gap-2 scroll-mt-2 transition-colors duration-300">
+              <span className="text-secondary font-mono shrink-0">[{idx}]</span>
+              {s.url ? (
+                <a
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-secondary hover:underline truncate"
+                  title={s.url}
+                >
+                  {s.domain ?? s.url}
+                </a>
+              ) : (
+                <span className="text-muted-foreground truncate">
+                  {s.title ?? `Guide #${s.guideId ?? "?"}`}
+                </span>
+              )}
+              {s.verified && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  verified
+                </span>
+              )}
+              {s.reliability != null && !s.verified && (
+                <span className="text-[10px] text-muted-foreground/60">
+                  {Math.round(s.reliability * 100)}%
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ol>
     </div>
   );
 }
 
+const CITATION_RE = /(\[\d+\])/g;
+
+function CitationText({ children, onCite }) {
+  if (typeof children !== "string") return children;
+  const parts = children.split(CITATION_RE);
+  if (parts.length === 1) return children;
+  return parts.map((part, i) => {
+    const m = part.match(/^\[(\d+)\]$/);
+    if (m) {
+      return (
+        <button
+          key={i}
+          onClick={() => onCite(parseInt(m[1], 10))}
+          className="inline text-secondary font-mono text-[11px] hover:text-primary hover:underline transition-colors align-baseline"
+        >
+          {part}
+        </button>
+      );
+    }
+    return part;
+  });
+}
+
 export default function ChatMessageBubble({ message, sessionId, onPickGameCandidate }) {
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const sourcesRef = useRef(null);
   const { trackRating } = useGamificationContext();
   const isUser = message.role === "user";
+
+  const scrollToSource = useCallback((n) => {
+    const el = document.getElementById(`source-${n}`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      el.classList.add("bg-secondary/10");
+      setTimeout(() => el.classList.remove("bg-secondary/10"), 1200);
+    }
+  }, []);
 
   if (isUser) {
     return (
@@ -216,6 +252,7 @@ export default function ChatMessageBubble({ message, sessionId, onPickGameCandid
               code: ({ children }) => (
                 <code className="px-1.5 py-0.5 rounded bg-white/5 text-secondary text-xs font-mono">{children}</code>
               ),
+              text: ({ children }) => <CitationText onCite={scrollToSource}>{children}</CitationText>,
             }}
           >
             {message.content || ""}
@@ -223,7 +260,7 @@ export default function ChatMessageBubble({ message, sessionId, onPickGameCandid
         )}
 
         {/* T3.3 inline citations source list */}
-        <SourcesList sources={message.sources} />
+        <SourcesList sources={message.sources} sourcesRef={sourcesRef} />
 
         {/* T3.5 PSN flag rosso */}
         <UnverifiedPsnAlert unverifiedPsnIds={message.unverifiedPsnIds} />

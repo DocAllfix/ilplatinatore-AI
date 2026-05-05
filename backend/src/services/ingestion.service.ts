@@ -3,6 +3,7 @@ import { GuideDraftsModel, type GuideDraftRow, type DraftValidationError } from 
 import { GuidesModel, type GuideRow } from "@/models/guides.model.js";
 import { enqueueLiveEmbedding } from "@/queues/embedding.queue.js";
 import { slugify } from "@/services/guide.cache.js";
+import { resolveOrCreateGame } from "@/services/gameEnrichment.service.js";
 import { NotFoundError, ValidationError } from "@/utils/errors.js";
 
 // ── Validation constants ──────────────────────────────────────────────────────
@@ -103,7 +104,7 @@ export function validateDraft(draft: GuideDraftRow): ValidationResult {
 
 export async function ingestApprovedDraft(draftId: string): Promise<GuideRow> {
   // Load draft
-  const draft = await GuideDraftsModel.findById(draftId);
+  let draft = await GuideDraftsModel.findById(draftId);
   if (!draft) throw new NotFoundError(`Draft ${draftId} non trovata`);
 
   // Idempotency: if already published, return the existing guide (before status guard)
@@ -118,6 +119,21 @@ export async function ingestApprovedDraft(draftId: string): Promise<GuideRow> {
     throw new ValidationError(
       `Ingestion richiede status 'approved', trovato '${draft.status}'.`,
     );
+  }
+
+  // Auto-risoluzione game_id: se la bozza non ha un gioco associato,
+  // cerca/crea automaticamente prima di validare (Layer 3 richiederebbe game_id).
+  if (!draft.game_id) {
+    const meta = draft.search_metadata as { gameTitle?: string; targetName?: string };
+    const gameTitle = meta.gameTitle ?? meta.targetName ?? draft.title ?? "Unknown Game";
+    try {
+      const { game, source } = await resolveOrCreateGame(draft.id, gameTitle);
+      draft = { ...draft, game_id: game.id };
+      logger.info({ draftId, gameId: game.id, source }, "ingestion: game auto-creato");
+    } catch (err) {
+      logger.error({ err, draftId }, "ingestion: resolveOrCreateGame fallito — continuo senza game_id");
+      // Lascia game_id = null: validateDraft() lo catturerà al Layer 3 → markFailed()
+    }
   }
 
   // Validate content
