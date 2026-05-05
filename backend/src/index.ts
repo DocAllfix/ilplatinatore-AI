@@ -22,7 +22,17 @@ app.set("trust proxy", 1);
 
 // ── Security & parsing ───────────────────────────────────────
 app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGINS.split(","), credentials: true }));
+const allowedOrigins = env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean);
+logger.info({ allowedOrigins }, "CORS origins configurati");
+app.use(cors({
+  origin: (origin, callback) => {
+    // Permetti richieste senza origin (curl, mobile app, server-to-server)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, origin);
+    callback(new Error(`CORS: origin non permessa: ${origin}`));
+  },
+  credentials: true,
+}));
 // requestLogger PRIMA di express.json: garantisce che req.requestId sia assegnato
 // anche quando il parsing JSON fallisce e Express salta direttamente all'errorHandler.
 app.use(requestLogger);
