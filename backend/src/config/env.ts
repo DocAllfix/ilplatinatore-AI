@@ -30,9 +30,9 @@ const envSchema = z.object({
   IGDB_CLIENT_SECRET: z.string().default(""),
 
   // ── WordPress ───────────────────────────────────────────────
-  WP_API_URL: z.string().url(),
-  WP_APP_PASSWORD: z.string().min(1),
-  WP_WEBHOOK_SECRET: z.string().min(1),
+  WP_API_URL: z.string().default(""),
+  WP_APP_PASSWORD: z.string().default(""),
+  WP_WEBHOOK_SECRET: z.string().default(""),
 
   // ── Auth ────────────────────────────────────────────────────
   JWT_SECRET: z.string().min(32),
@@ -41,10 +41,10 @@ const envSchema = z.object({
   CSRF_SECRET: z.string().min(32),
 
   // ── Stripe ──────────────────────────────────────────────────
-  STRIPE_SECRET_KEY: z.string().min(1),
-  STRIPE_WEBHOOK_SECRET: z.string().min(1),
-  STRIPE_PRICE_PRO: z.string().min(1),
-  STRIPE_PRICE_PLATINUM: z.string().min(1),
+  STRIPE_SECRET_KEY: z.string().default(""),
+  STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  STRIPE_PRICE_PRO: z.string().default(""),
+  STRIPE_PRICE_PLATINUM: z.string().default(""),
 
   // ── App ─────────────────────────────────────────────────────
   NODE_ENV: z
