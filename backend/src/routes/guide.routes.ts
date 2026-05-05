@@ -61,6 +61,60 @@ guideRouter.post(
   }),
 );
 
+// ── POST /api/guide/stream — SSE (usato dal frontend fetch-based) ──────────
+// Il frontend usa fetch POST con body JSON invece di EventSource GET.
+// Questa route accetta body JSON e risponde con SSE identico alla GET.
+guideRouter.post(
+  "/stream",
+  optionalAuth,
+  requireBetaAccess,
+  guideTierLimiter,
+  validate(guideRequestSchema, "body"),
+  asyncHandler(async (req: Request, res: Response) => {
+    const body = req.body as z.infer<typeof guideRequestSchema>;
+    const params = {
+      query: body.query,
+      userId: req.user?.userId ?? null,
+      sessionId: body.sessionId ?? null,
+      ...(body.language && { language: body.language }),
+      ...(body.explicitGameId !== undefined && { explicitGameId: body.explicitGameId }),
+    };
+
+    const cached = await tryCacheHit(params);
+    if (cached) {
+      res.json({ data: cached });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    const send = (event: string, data: unknown): void => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let aborted = false;
+    req.on("close", () => { aborted = true; });
+
+    try {
+      const stream = handleGuideStream(params);
+      for await (const ev of stream) {
+        if (aborted) break;
+        send(ev.type, ev.data);
+      }
+    } catch (err) {
+      logger.error({ err }, "guide.stream POST: errore non intercettato");
+      send("error", { message: "Errore stream" });
+    } finally {
+      res.end();
+    }
+  }),
+);
+
 // ── GET /api/guide/stream — SSE ────────────────────────────────────────────
 /**
  * Server-Sent Events endpoint. Formato standard SSE:
