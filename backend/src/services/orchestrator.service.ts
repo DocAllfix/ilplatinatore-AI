@@ -119,7 +119,7 @@ export async function handleGuideRequest(
   // STEP 4 — scraping fallback
   if (norm.game) {
     try {
-      bundle = await enrichWithScraping(bundle, norm.game.title, params.query);
+      bundle = await enrichWithScraping(bundle, norm.game.title, params.query, norm.game.id, norm.guideType);
     } catch (err) {
       logger.warn({ err }, "orchestrator STEP 4 (scraping): fallito, continuo senza");
     }

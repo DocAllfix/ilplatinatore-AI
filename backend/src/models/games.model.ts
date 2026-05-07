@@ -15,6 +15,10 @@ export interface GameRow {
   steam_appid: number | null;
   // Migration 034: flag giochi auto-creati durante ingestione bozze.
   auto_created: boolean;
+  // Migration 035: categoria IGDB (0=main/remaster/remake, 1=DLC, 2=expansion, 3=bundle...).
+  igdb_category: number | null;
+  // Migration 035: igdb_id del gioco "padre" (es. per TLoU Remastered → TLoU originale).
+  igdb_parent_game: number | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -28,6 +32,8 @@ export interface GameCreate {
   cover_url?: string | null;
   metadata?: Record<string, unknown>;
   igdb_id?: number | null;
+  igdb_category?: number | null;
+  igdb_parent_game?: number | null;
   auto_created?: boolean;
 }
 
@@ -44,6 +50,7 @@ export interface GameUpdate {
 const GAME_COLS = `
   id, title, slug, platform, release_date,
   genre, cover_url, metadata, igdb_id, steam_appid, auto_created,
+  igdb_category, igdb_parent_game,
   created_at, updated_at
 `;
 
@@ -175,13 +182,15 @@ export const GamesModel = {
          -- Per igdb_id = NULL (fallback minimo) il conflitto non si applica.
          INSERT INTO games (
            title, slug, platform, release_date, genre, cover_url, metadata,
-           igdb_id, auto_created
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           igdb_id, igdb_category, igdb_parent_game, auto_created
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (igdb_id) WHERE igdb_id IS NOT NULL
          DO UPDATE SET
-           title      = EXCLUDED.title,
-           cover_url  = COALESCE(EXCLUDED.cover_url, games.cover_url),
-           updated_at = NOW()
+           title             = EXCLUDED.title,
+           cover_url         = COALESCE(EXCLUDED.cover_url, games.cover_url),
+           igdb_category     = COALESCE(EXCLUDED.igdb_category, games.igdb_category),
+           igdb_parent_game  = COALESCE(EXCLUDED.igdb_parent_game, games.igdb_parent_game),
+           updated_at        = NOW()
          RETURNING ${GAME_COLS}`,
         [
           data.title,
@@ -192,6 +201,8 @@ export const GamesModel = {
           data.cover_url ?? null,
           data.metadata ?? {},
           data.igdb_id ?? null,
+          data.igdb_category ?? null,
+          data.igdb_parent_game ?? null,
           data.auto_created ?? false,
         ],
       );

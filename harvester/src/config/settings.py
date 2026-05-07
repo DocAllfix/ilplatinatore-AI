@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     igdb_client_secret: str = ""
     steam_api_key: str = ""  # Steam Web API key — se vuoto: Steam fetcher disabilitato
     youtube_api_key: str = ""  # YouTube Data API v3 key — se vuoto: YouTube fetcher disabilitato
+    tavily_api_key: str = ""  # Tavily Search API — se vuoto: guide links harvester disabilitato
 
     # ── Opzionali con prefisso HARVESTER_ ───────────────────────────────────────
     # AliasChoices: prova HARVESTER_LOG_LEVEL prima, poi LOG_LEVEL come fallback

@@ -263,10 +263,11 @@ const TOPIC_KEYWORDS: Array<{ re: RegExp; hint: TopicHint }> = [
   { re: /\b(armatur|armor)/i, hint: { topic: "armor", guideType: "collectible" } },
   { re: /\b(collectible|collezionabil)/i, hint: { topic: null, guideType: "collectible" } },
   { re: /\b(sfida|challenge)\b/i, hint: { topic: null, guideType: "challenge" } },
-  { re: /\b(build|equipaggiament)/i, hint: { topic: "build", guideType: "challenge" } },
-  { re: /\b(lore|trama|storia)\b/i, hint: { topic: "lore", guideType: "walkthrough" } },
-  { re: /\b(boss)\b/i, hint: { topic: null, guideType: "walkthrough" } },
+  { re: /\b(build|loadout|equipaggiament)/i, hint: { topic: "build", guideType: "build" } },
+  { re: /\b(lore|trama|storia|backstory)\b/i, hint: { topic: "lore", guideType: "lore" } },
+  { re: /\b(boss|bossfight)\b/i, hint: { topic: null, guideType: "walkthrough" } },
   { re: /\b(walkthrough|passaggi)\b/i, hint: { topic: null, guideType: "walkthrough" } },
+  { re: /\b(general|guida completa|complete guide|how to play)\b/i, hint: { topic: null, guideType: "general" } },
 ];
 
 function extractTopicHint(query: string): TopicHint | null {

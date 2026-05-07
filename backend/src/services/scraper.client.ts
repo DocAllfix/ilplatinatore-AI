@@ -18,24 +18,29 @@ export interface ScrapingResult {
 
 // Domains trusted for gaming guides — reduces hallucination risk
 const TRUSTED_DOMAINS = new Set([
+  // Trophy / achievement
   "powerpyx.com",
   "playstationtrophies.org",
   "trueachievements.com",
+  "psnprofiles.com",
+  "exophase.com",
+  "trophygamers.com",
+  // Guide generali
   "ign.com",
   "gamefaqs.gamespot.com",
   "gamesradar.com",
   "pushsquare.com",
-  "psnprofiles.com",
-  "exophase.com",
   "thegamer.com",
   "gamepressure.com",
   "wikigameguides.com",
-  "fandom.com",
   "neoseeker.com",
-  "jeuxvideo.com",
   "guide-ps4.fr",
-  "trophygamers.com",
+  "jeuxvideo.com",
   "supersoluce.com",
+  // Wiki / lore / build
+  "fandom.com",
+  "fextralife.com",
+  "screenrant.com",
 ]);
 
 const CACHE_PREFIX = "tavily:";
@@ -66,15 +71,15 @@ function isTrusted(url: string): boolean {
 
 function reliabilityScore(url: string): number {
   const domain = extractDomain(url);
-  // Dedicated trophy/achievement sites: highest reliability
   const topTier = new Set([
-    "powerpyx.com",
-    "playstationtrophies.org",
-    "trueachievements.com",
-    "psnprofiles.com",
-    "exophase.com",
+    "powerpyx.com", "playstationtrophies.org",
+    "trueachievements.com", "psnprofiles.com", "exophase.com",
+  ]);
+  const loreBuildTier = new Set([
+    "fandom.com", "fextralife.com", "gamefaqs.gamespot.com", "neoseeker.com",
   ]);
   if (topTier.has(domain)) return 0.95;
+  if (loreBuildTier.has(domain) || [...loreBuildTier].some((d) => domain.endsWith(`.${d}`))) return 0.88;
   if (TRUSTED_DOMAINS.has(domain)) return 0.8;
   return 0.5;
 }
@@ -177,6 +182,63 @@ async function callTavily(
       "scraper.client: errore chiamata Tavily",
     );
     return { context: "", sources: [], totalWordCount: 0, scrapingTimeMs: 0 };
+  }
+}
+
+const MIN_CONTENT_LENGTH = 300;
+const DIRECT_FETCH_TIMEOUT_MS = 10_000;
+
+/**
+ * Fetcha direttamente una URL nota e restituisce il testo estratto.
+ * Usato da enrichWithScraping() quando game_guide_links ha link pre-validati.
+ * Ritorna null se il fetch fallisce o il contenuto è troppo corto.
+ */
+export async function fetchDirectUrl(url: string): Promise<string | null> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DIRECT_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; PlatinatoreAI/1.0; gaming guide assistant)",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      logger.debug({ url, status: response.status }, "fetchDirectUrl: non-200");
+      return null;
+    }
+
+    const html = await response.text();
+    // Estrazione testo minimale: rimuove tag HTML, collassa spazi
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]{0,500}>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s{3,}/g, "\n")
+      .trim()
+      .slice(0, 8000); // Cap a ~8k char per non sovraccaricare il prompt
+
+    if (text.length < MIN_CONTENT_LENGTH) {
+      logger.debug({ url, len: text.length }, "fetchDirectUrl: contenuto troppo corto");
+      return null;
+    }
+
+    logger.debug({ url, len: text.length }, "fetchDirectUrl: OK");
+    return text;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const isAbort = err instanceof Error && err.name === "AbortError";
+    logger.debug({ url, timeout: isAbort, err }, "fetchDirectUrl: errore fetch");
+    return null;
   }
 }
 

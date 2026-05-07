@@ -33,6 +33,8 @@ const mockGame = {
   igdb_id: null,
   steam_appid: null,
   auto_created: false,
+  igdb_category: null,
+  igdb_parent_game: null,
   created_at: new Date(),
   updated_at: new Date(),
 };
@@ -270,7 +272,7 @@ describe("normalizeQuery", () => {
 
     const result = await normalizeQuery("best build for elden ring");
 
-    expect(result.guideType).toBe("challenge");
+    expect(result.guideType).toBe("build");
     expect(result.topic).toBe("build");
   });
 
@@ -279,7 +281,7 @@ describe("normalizeQuery", () => {
 
     const result = await normalizeQuery("lore and storia di elden ring");
 
-    expect(result.guideType).toBe("walkthrough");
+    expect(result.guideType).toBe("lore");
     expect(result.topic).toBe("lore");
   });
 });

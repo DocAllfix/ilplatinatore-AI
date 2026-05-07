@@ -10,7 +10,7 @@ export interface GuideRow {
   content: string;
   content_html: string | null;
   language: string;
-  guide_type: "trophy" | "walkthrough" | "collectible" | "challenge" | "platinum" | null;
+  guide_type: "trophy" | "walkthrough" | "collectible" | "challenge" | "platinum" | "lore" | "build" | "general" | null;
   source: string;
   quality_score: number;
   verified: boolean;

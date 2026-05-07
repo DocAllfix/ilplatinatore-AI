@@ -21,7 +21,10 @@ export type GuideType =
   | "walkthrough"
   | "collectible"
   | "challenge"
-  | "platinum";
+  | "platinum"
+  | "lore"
+  | "build"
+  | "general";
 
 export interface PsnAnchor {
   psn_trophy_id: string | null;
@@ -727,12 +730,68 @@ ${L.user_question}: ${ctx.userQuery}`;
   return { system, user, templateId: "platinum" };
 }
 
+function buildLore(ctx: PromptContext): BuiltPrompt {
+  const L = getLabels(ctx.language);
+  const langName = llmLanguageName(ctx.language);
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
+
+${L.task}: explain the lore, story, and world-building of "${ctx.targetName}" in "${ctx.gameTitle}".
+${L.output_language}: ${langName}.
+Required structure:
+  ## ${L.h_overview}
+  ## Story / Lore
+  ## Key characters and factions
+  ## ${L.h_tips}
+  ## ${L.h_sources}`;
+  const user = `${assembleUserContext(ctx, L)}
+
+${L.user_question}: ${ctx.userQuery}`;
+  return { system, user, templateId: "lore" };
+}
+
+function buildBuild(ctx: PromptContext): BuiltPrompt {
+  const L = getLabels(ctx.language);
+  const langName = llmLanguageName(ctx.language);
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
+
+${L.task}: provide a build guide for "${ctx.targetName}" in "${ctx.gameTitle}".
+${L.output_language}: ${langName}.
+Required structure:
+  ## ${L.h_objective}
+  ## ${L.h_preparation}
+  ## Recommended stats / attributes
+  ## Best equipment / skills
+  ## ${L.h_tips}
+  ## ${L.h_sources}`;
+  const user = `${assembleUserContext(ctx, L)}
+
+${L.user_question}: ${ctx.userQuery}`;
+  return { system, user, templateId: "build" };
+}
+
+function buildGeneral(ctx: PromptContext): BuiltPrompt {
+  const L = getLabels(ctx.language);
+  const langName = llmLanguageName(ctx.language);
+  const system = `${buildSystemCore(L, ctx.previousTurns)}
+
+${L.task}: answer the question about "${ctx.gameTitle}" using the available context.
+${L.output_language}: ${langName}.
+Answer clearly and directly. Use Markdown headers to structure a longer response when appropriate. Cite sources if present in the context.`;
+  const user = `${assembleUserContext(ctx, L)}
+
+${L.user_question}: ${ctx.userQuery}`;
+  return { system, user, templateId: "general" };
+}
+
 const BUILDERS: Record<GuideType, (ctx: PromptContext) => BuiltPrompt> = {
   trophy: buildTrophy,
   walkthrough: buildWalkthrough,
   collectible: buildCollectible,
   challenge: buildChallenge,
   platinum: buildPlatinum,
+  lore: buildLore,
+  build: buildBuild,
+  general: buildGeneral,
 };
 
 /**

@@ -17,7 +17,10 @@ export type DraftGuideType =
   | "walkthrough"
   | "collectible"
   | "challenge"
-  | "platinum";
+  | "platinum"
+  | "lore"
+  | "build"
+  | "general";
 
 export interface DraftSource {
   url: string;

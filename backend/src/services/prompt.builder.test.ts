@@ -66,11 +66,10 @@ describe("buildPrompt — dispatcher guide_type", () => {
     expect(r.system).toContain("Output language: English");
   });
 
-  it("T3.3 — SYSTEM include la rule di inline citations [N] tagging", () => {
+  it("T3.3 — SYSTEM include la rule di no inline citations (formato attuale)", () => {
     const r = buildPrompt(baseCtx);
-    expect(r.system).toContain("[1]");
-    expect(r.system).toMatch(/inline citations|cite/i);
-    expect(r.system).toContain("--- SOURCE N:");
+    expect(r.system).toMatch(/Do NOT include inline citations/i);
+    expect(r.system).toMatch(/sources\/fonti/i);
   });
 
   it("T3.3 — citation rule presente in tutte le 9 lingue (è universal EN)", () => {

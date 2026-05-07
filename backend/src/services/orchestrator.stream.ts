@@ -159,7 +159,7 @@ export async function* handleGuideStream(
       // Usa il titolo rilevato se disponibile, altrimenti la query grezza come fallback.
       // Consente a Tavily di attivarsi anche quando il gioco non è nel DB locale.
       const scrapingTitle = norm.game?.title ?? params.query;
-      bundle = await enrichWithScraping(bundle, scrapingTitle, params.query);
+      bundle = await enrichWithScraping(bundle, scrapingTitle, params.query, norm.game?.id, norm.guideType);
     } catch (err) {
       logger.warn({ err }, "stream STEP 4 (scraping): fallito");
     }

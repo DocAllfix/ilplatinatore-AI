@@ -1,8 +1,9 @@
 import { RagService, type RagResult } from "@/services/rag.service.js";
 import { assembleContext } from "@/services/rag.fusion.js";
-import { fetchScrapedContext } from "@/services/scraper.client.js";
+import { fetchScrapedContext, fetchDirectUrl } from "@/services/scraper.client.js";
 import { OnDemandHarvestService } from "@/services/onDemandHarvest.service.js";
 import { GuidesModel } from "@/models/guides.model.js";
+import { GameGuideLinksModel } from "@/models/gameGuideLinks.model.js";
 import { env } from "@/config/env.js";
 import { logger } from "@/utils/logger.js";
 import type { NormalizedQuery } from "@/services/query.normalizer.js";
@@ -86,16 +87,59 @@ export async function retrieveContext(
 }
 
 /**
- * Fallback scraping live: invocato SOLO se RAG è vuoto (ragContext.trim() === "").
- * In Fase 16 il client scraper è uno stub (scraper.client.ts) → ritorna no-op
- * finché non viene wired il transport HTTP verso il microservizio scraper.
+ * Fallback scraping con cascade a 3 livelli:
+ *   1. RAG presente → ritorna subito (nessun fetch necessario)
+ *   2. game_guide_links ha link per il gioco → fetcha i primi 2 URL in parallelo.
+ *      Se almeno 1 ritorna contenuto reale → usa quello (zero quota Tavily consumata).
+ *   3. Nessun link salvato o tutti i fetch falliti → Tavily generico (fallback invariato).
  */
 export async function enrichWithScraping(
   bundle: RetrievalBundle,
   gameTitle: string,
   query: string,
+  gameId?: number,
+  guideType?: string,
 ): Promise<RetrievalBundle> {
   if (bundle.ragContext.trim().length > 0) return bundle;
+
+  // Livello 2: link pre-verificati in game_guide_links
+  if (gameId !== undefined) {
+    const savedLinks = await GameGuideLinksModel.findByGame(gameId, guideType);
+    if (savedLinks.length > 0) {
+      const topLinks = savedLinks.slice(0, 2);
+      const fetched = await Promise.all(
+        topLinks.map((link) => fetchDirectUrl(link.url).then((text) => ({ link, text }))),
+      );
+      const valid = fetched.filter((f) => f.text !== null && f.text.length >= 300);
+      if (valid.length > 0) {
+        const contextParts = valid.map((f, i) =>
+          `--- FONTE ${i + 1}: ${f.link.url} ---\n${f.text!.trim()}`,
+        );
+        const context = contextParts.join("\n\n");
+        logger.info(
+          { gameId, guideType, links: valid.map((f) => f.link.url) },
+          "enrichWithScraping: usati link pre-verificati da game_guide_links",
+        );
+        return {
+          ...bundle,
+          sourceUsed: "scraping",
+          scrapingContext: context,
+          sources: valid.map((f, i) => ({
+            index: i + 1,
+            url: f.link.url,
+            domain: f.link.domain,
+            reliability: f.link.reliability,
+          })),
+        };
+      }
+      logger.debug(
+        { gameId, links: topLinks.map((l) => l.url) },
+        "enrichWithScraping: link salvati non raggiungibili, fallback Tavily",
+      );
+    }
+  }
+
+  // Livello 3: Tavily generico
   const scraped = await fetchScrapedContext(gameTitle, query);
   if (scraped.context.trim().length === 0) return bundle;
   return {
