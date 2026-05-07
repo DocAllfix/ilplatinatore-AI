@@ -59,9 +59,13 @@ const envSchema = z.object({
   RAG_MAX_RESULTS: z.coerce.number().int().positive().default(5),
   EMBEDDING_DIMENSION: z.coerce.number().int().positive().default(768),
 
-  // ── LLM Chat (Fase 16 — Gemini primario; DeepSeek deferral in memoria) ──
+  // ── LLM Chat — provider selezionabile via LLM_CHAT_PROVIDER ──────────────
+  // LLM_CHAT_PROVIDER: "gemini" (default) | "deepseek"
+  LLM_CHAT_PROVIDER: z.enum(["gemini", "deepseek"]).default("gemini"),
   GEMINI_CHAT_MODEL: z.string().min(1).default("gemini-2.5-flash"),
   GEMINI_CHAT_MODEL_FALLBACK: z.string().min(1).default("gemini-2.5-flash-lite"),
+  DEEPSEEK_API_KEY: z.string().default(""),
+  DEEPSEEK_CHAT_MODEL: z.string().min(1).default("deepseek-chat"),
   LLM_CHAT_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.3),
   LLM_CHAT_TOP_P: z.coerce.number().min(0).max(1).default(0.9),
   LLM_CHAT_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
