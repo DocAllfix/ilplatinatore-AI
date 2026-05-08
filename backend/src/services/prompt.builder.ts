@@ -69,6 +69,11 @@ export interface PromptContext {
    * comportamento è identico al pre-T3.1.
    */
   previousTurns?: Array<{ role: "user" | "assistant"; text: string }>;
+  /**
+   * True se ragContext o scrapingContext contengono testo.
+   * Quando false, il prompt usa knowledge generale LLM invece di bloccare con "non ho info".
+   */
+  hasContext?: boolean;
 }
 
 export interface BuiltPrompt {
@@ -574,12 +579,16 @@ function llmLanguageName(language: string): string {
 function buildSystemCore(
   L: I18nLabels,
   previousTurns?: PromptContext["previousTurns"],
+  hasContext?: boolean,
 ): string {
   const history = formatConversationHistory(previousTurns);
+  const rule1 = hasContext === false
+    ? "Answer based on your general knowledge about video games and gaming. When no verified sources are available, add a brief note like \"(based on general knowledge)\" at the end of your response."
+    : L.rule_context_only;
   return `${L.intro}
 
 REGOLE INVARIANTI / INVARIANT RULES:
-1. ${L.rule_context_only}
+1. ${rule1}
 2. ${L.rule_psn_literal}
 3. ${L.rule_no_cheats}
 4. ${L.rule_markdown}
@@ -634,7 +643,7 @@ function buildTrophy(ctx: PromptContext): BuiltPrompt {
   const langName = llmLanguageName(ctx.language);
   const anchor = formatPsnAnchor(ctx.psnAnchor, L);
   const official = formatPsnOfficial(ctx.psnOfficial, L);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: produce a guide for the trophy "${ctx.targetName}" of the game "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -653,7 +662,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildWalkthrough(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: produce a walkthrough for "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -673,7 +682,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildCollectible(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: collectible guide "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -693,7 +702,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildChallenge(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: explain how to complete the challenge "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -713,7 +722,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildPlatinum(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: produce the platinum roadmap for "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -733,7 +742,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildLore(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: explain the lore, story, and world-building of "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -752,7 +761,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildBuild(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: provide a build guide for "${ctx.targetName}" in "${ctx.gameTitle}".
 ${L.output_language}: ${langName}.
@@ -772,7 +781,7 @@ ${L.user_question}: ${ctx.userQuery}`;
 function buildGeneral(ctx: PromptContext): BuiltPrompt {
   const L = getLabels(ctx.language);
   const langName = llmLanguageName(ctx.language);
-  const system = `${buildSystemCore(L, ctx.previousTurns)}
+  const system = `${buildSystemCore(L, ctx.previousTurns, ctx.hasContext)}
 
 ${L.task}: answer the question about "${ctx.gameTitle}" using the available context.
 ${L.output_language}: ${langName}.

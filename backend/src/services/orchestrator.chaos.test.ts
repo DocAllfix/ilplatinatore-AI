@@ -19,6 +19,7 @@ vi.mock("@/utils/logger.js", () => ({
 
 vi.mock("@/services/query.normalizer.js", () => ({
   normalizeQuery: vi.fn(),
+  rewriteFollowUp: vi.fn((q: string) => q),
 }));
 
 vi.mock("@/services/guide.cache.js", () => ({

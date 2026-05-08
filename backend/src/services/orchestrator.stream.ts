@@ -18,8 +18,8 @@ import { validatePsnTrophyIdsInContent } from "@/services/psn.validator.js";
 import {
   getConversation,
   appendTurn,
-  clearConversation,
 } from "@/services/conversation.memory.js";
+import { rewriteFollowUp } from "@/services/query.normalizer.js";
 
 // T3.1 — Conversational identifier helper (mirror di orchestrator.service).
 function conversationId(p: HandleGuideParams): string | null {
@@ -106,9 +106,11 @@ export async function* handleGuideStream(
     if (convId) {
       const conv = await getConversation(convId, norm.game?.id ?? null);
       if (conv.resetSuggested) {
-        logger.info({ convId, gameId: norm.game?.id }, "stream: cross-game reset memory");
-        await clearConversation(convId);
-      } else if (conv.previousTurns.length > 0) {
+        // Fix: non cancellare la memoria al cambio gioco — mantieni la history,
+        // il nuovo gameId si aggiorna con appendTurn alla fine del turno.
+        logger.info({ convId, gameId: norm.game?.id }, "stream: cross-game switch, memory mantenuta");
+      }
+      if (conv.previousTurns.length > 0) {
         previousTurns = conv.previousTurns.map((t) => ({ role: t.role, text: t.text }));
       }
     }
@@ -148,18 +150,23 @@ export async function* handleGuideStream(
     };
 
     // ── STEP 3+4 — retrieval + scraping (parallelizzabile in futuro) ─────
+    // Riscrive query vague ("dimmi di più", "e i boss?") in forma standalone
+    // per migliorare il retrieval RAG. La query originale resta nel prompt LLM.
+    const retrievalQuery = rewriteFollowUp(params.query, previousTurns ?? []);
+
     let bundle: RetrievalBundle;
     try {
-      bundle = await retrieveContext(norm);
+      const normForRetrieval = retrievalQuery !== params.query
+        ? { ...norm, rawQuery: retrievalQuery }
+        : norm;
+      bundle = await retrieveContext(normForRetrieval);
     } catch (err) {
       logger.error({ err }, "stream STEP 3 (retrieve): fallito");
       bundle = { results: [], sourceUsed: "none", ragContext: "", scrapingContext: "", sources: [] };
     }
     try {
-      // Usa il titolo rilevato se disponibile, altrimenti la query grezza come fallback.
-      // Consente a Tavily di attivarsi anche quando il gioco non è nel DB locale.
       const scrapingTitle = norm.game?.title ?? params.query;
-      bundle = await enrichWithScraping(bundle, scrapingTitle, params.query, norm.game?.id, norm.guideType);
+      bundle = await enrichWithScraping(bundle, scrapingTitle, retrievalQuery, norm.game?.id, norm.guideType);
     } catch (err) {
       logger.warn({ err }, "stream STEP 4 (scraping): fallito");
     }

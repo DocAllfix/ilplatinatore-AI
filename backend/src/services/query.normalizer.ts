@@ -344,3 +344,31 @@ export async function normalizeQuery(
     ...(gameCandidates && { gameCandidates }),
   };
 }
+
+/**
+ * Riscrive una query vague/follow-up in forma standalone per migliorare il retrieval RAG.
+ * Usata SOLO per la ricerca RAG — la query originale rimane immutata nel prompt LLM.
+ *
+ * Esempi:
+ *   "dimmi di più" + prev "come ottengo il platino di Elden Ring?"
+ *   → "come ottengo il platino di Elden Ring? — dimmi di più"
+ *
+ *   "e i boss?" + prev "guida Bloodborne"
+ *   → "guida Bloodborne — e i boss?"
+ */
+export function rewriteFollowUp(
+  query: string,
+  previousTurns: Array<{ role: string; text: string }>,
+): string {
+  const trimmed = query.trim();
+  const isVague =
+    trimmed.length < 35 ||
+    /^(e |dimmi|cosa intend|quello|quel |allora|invece|però|ma |più info|approfond|spieg|come mai|perché|perche|qual|quali|quando|dove |chi |cosa |come |ok |va bene|capito|intendi|voglio|puoi|potresti)/i.test(trimmed);
+
+  if (!isVague || previousTurns.length === 0) return query;
+
+  const lastUser = [...previousTurns].reverse().find((t) => t.role === "user");
+  if (!lastUser) return query;
+
+  return `${lastUser.text} — ${trimmed}`;
+}

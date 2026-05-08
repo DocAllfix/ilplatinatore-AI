@@ -1,5 +1,5 @@
 import { logger } from "@/utils/logger.js";
-import { normalizeQuery, type NormalizedQuery } from "@/services/query.normalizer.js";
+import { normalizeQuery, rewriteFollowUp, type NormalizedQuery } from "@/services/query.normalizer.js";
 import { GuideCache, type CachedGuide } from "@/services/guide.cache.js";
 import { generateGuide } from "@/services/llm.service.js";
 import {
@@ -19,7 +19,6 @@ import { validatePsnTrophyIdsInContent } from "@/services/psn.validator.js";
 import {
   getConversation,
   appendTurn,
-  clearConversation,
 } from "@/services/conversation.memory.js";
 import { scoreGuideContent } from "@/services/quality.scorer.js";
 
@@ -100,17 +99,23 @@ export async function handleGuideRequest(
   if (convId) {
     const conv = await getConversation(convId, norm.game?.id ?? null);
     if (conv.resetSuggested) {
-      logger.info({ convId, gameId: norm.game?.id }, "orchestrator: cross-game reset memory");
-      await clearConversation(convId);
-    } else if (conv.previousTurns.length > 0) {
+      logger.info({ convId, gameId: norm.game?.id }, "orchestrator: cross-game switch, memory mantenuta");
+    }
+    if (conv.previousTurns.length > 0) {
       previousTurns = conv.previousTurns.map((t) => ({ role: t.role, text: t.text }));
     }
   }
 
+  // Riscrive query vague in forma standalone per migliorare retrieval RAG.
+  const retrievalQuery = rewriteFollowUp(params.query, previousTurns ?? []);
+
   // STEP 3 — retrieve (safe-default: bundle vuoto)
   let bundle: RetrievalBundle;
   try {
-    bundle = await retrieveContext(norm);
+    const normForRetrieval = retrievalQuery !== params.query
+      ? { ...norm, rawQuery: retrievalQuery }
+      : norm;
+    bundle = await retrieveContext(normForRetrieval);
   } catch (err) {
     logger.error({ err }, "orchestrator STEP 3 (retrieve): fallito, contesto vuoto");
     bundle = { results: [], sourceUsed: "none", ragContext: "", scrapingContext: "", sources: [] };
@@ -119,7 +124,7 @@ export async function handleGuideRequest(
   // STEP 4 — scraping fallback
   if (norm.game) {
     try {
-      bundle = await enrichWithScraping(bundle, norm.game.title, params.query, norm.game.id, norm.guideType);
+      bundle = await enrichWithScraping(bundle, norm.game.title, retrievalQuery, norm.game.id, norm.guideType);
     } catch (err) {
       logger.warn({ err }, "orchestrator STEP 4 (scraping): fallito, continuo senza");
     }

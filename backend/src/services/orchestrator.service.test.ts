@@ -18,6 +18,7 @@ import { createDraft } from "@/services/draft.service.js";
 
 vi.mock("@/services/query.normalizer.js", () => ({
   normalizeQuery: vi.fn(),
+  rewriteFollowUp: vi.fn((q: string) => q),
 }));
 
 vi.mock("@/services/guide.cache.js", async () => {

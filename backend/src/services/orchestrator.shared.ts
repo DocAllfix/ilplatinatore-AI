@@ -80,9 +80,12 @@ export function buildPromptContext(
   query: string,
   previousTurns?: Array<{ role: "user" | "assistant"; text: string }>,
 ): PromptContext {
+  const hasContext =
+    bundle.ragContext.trim().length > 0 || (bundle.scrapingContext?.trim().length ?? 0) > 0;
   return {
     ragContext: bundle.ragContext,
     scrapingContext: bundle.scrapingContext,
+    hasContext,
     gameTitle: norm.game?.title ?? "gioco non identificato",
     targetName: norm.trophy?.name_en ?? norm.topic ?? query,
     guideType: norm.guideType,
